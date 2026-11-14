@@ -366,6 +366,7 @@ review 10)
 
 ### Log
 
+- 2026-11-14: `commit-authors` (the plan W audit, AutomataFramework PR 100): the check also fails the "by" form of the credit line and its italic footer, and "created", "made", "written" or "authored" with or by it. The script and its test are the framework's, line for line. No Owner question.
 - 2026-11-14: Stage 6, the fixes. F1: `decide` takes the run's ref and says in words that a run off `main` is built
   and tested but never deployed, and the `deploy` job's `if` also requires `github.ref == 'refs/heads/main'`. F2: the
   `site` workflow's jobs are `build-real` and `journeys-real` (their checks are `build-real` and
