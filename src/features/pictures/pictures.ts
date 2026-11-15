@@ -22,6 +22,8 @@ export interface Picture {
   readonly ready: string
   /** Lay the page out as a card first: the stylesheet draws the first screen for a shared link under `data-picture`. */
   readonly as?: 'share'
+  /** A screen that may come first, and the button that leaves it, as when a first visit asks for a language. */
+  readonly first?: { readonly screen: string; readonly press: string }
 }
 
 /** In the order they are taken: the share picture shows the game's picture, so that comes first. */
@@ -32,7 +34,10 @@ export const PICTURES: readonly Picture[] = [
     width: 1280,
     height: 720,
     scale: 2,
-    ready: '#game[data-state="playing"]',
+    ready: '#game[data-state="playing"], #game[data-state="picking"]',
+    // A first visit asks for a language before anything is played. The flag the device speaks is already chosen, so
+    // pressing Go is what a first-time player does, and the picture is of the game and not of the flags.
+    first: { screen: '#game[data-state="picking"]', press: '.automata-picker-go' },
   },
   { file: 'share.png', address: '/', width: 1200, height: 630, scale: 1, ready: 'h1', as: 'share' },
   { file: 'apple-touch-icon.png', address: '/icon.svg', width: 180, height: 180, scale: 1, ready: 'svg' },
@@ -120,6 +125,16 @@ export async function takePictures(options: {
             throw new PictureError(
               `${picture.file}: ${picture.address} never showed "${picture.ready}" in ${READY_MS / 1000} seconds, so there is no picture to take.`,
             )
+          }
+          if (picture.first !== undefined && (await page.locator(picture.first.screen).count()) > 0) {
+            await page.click(picture.first.press)
+            try {
+              await page.waitForSelector('#game[data-state="playing"]', { timeout: READY_MS })
+            } catch {
+              throw new PictureError(
+                `${picture.file}: pressing ${picture.first.press} did not start the game in ${READY_MS / 1000} seconds, so there is no picture to take.`,
+              )
+            }
           }
           if (picture.as !== undefined) {
             await page.evaluate((as) => {
