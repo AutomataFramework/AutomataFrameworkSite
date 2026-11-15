@@ -1,20 +1,63 @@
-# `check` runs the static checks and the Node tests. `build` makes the site around a stand-in game, and `journeys` drives
-# it in real Chromium, WebKit and Firefox. Every action is pinned to a commit.
+# `plan` says how much this run tests. `check` runs the static checks and the Node tests. `build` makes the site around a
+# stand-in game, and `journeys` drives it in real Chromium, WebKit and Firefox. Every action is pinned to a commit.
+#
+# How much is tested (the Owner, 2026-11-15): while a pull request is a draft, a thread is still working on it, so the
+# journeys play in Chromium only, only when the site's own files changed, and stop at their first failure. The whole
+# suite runs once the pull request is ready for review, on every push to main, and on a draft that carries the
+# `full-tests` label.
 name: ci
 
 on:
   pull_request:
+    # `ready_for_review` starts the whole suite as a draft is handed over; `labeled` lets a thread ask for it sooner.
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   push:
     branches: [main]
 
 permissions:
   contents: read
 
+# A newer push stops the run it replaces, so no one waits on results that no longer count.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  # How much this run tests, from the event and the files the pull request changes. Everything is `true` except on a
+  # draft without the `full-tests` label whose change leaves the build and the test setup alone:
+  #   full      false: the journeys play in Chromium only and stop at their first failure
+  #   journeys  false when none of the files the site is made of, or its journeys, changed: the journeys are left out
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      full: ${{ steps.plan.outputs.full }}
+      journeys: ${{ steps.plan.outputs.journeys }}
+    steps:
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          full=true journeys=true
+          if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ] && [[ " $LABELS " != *" full-tests "* ]] &&
+            changed="$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only)"; then
+            printf 'This draft changes:\n%s\n' "$changed"
+            # A change to how things are installed, built or tested reaches every test.
+            if ! grep -qE '^(package\.json|pnpm-lock\.yaml|[^/]*\.config\.(ts|js)|tsconfig[^/]*\.json|\.github/)' <<<"$changed"; then
+              full=false
+              grep -qE '^(src/|index\.html|404\.html|public/|scripts/|tests/journeys/|tests/fixtures/)' <<<"$changed" || journeys=false
+            fi
+          fi
+          echo "full=$full journeys=$journeys"
+          { echo "full=$full"; echo "journeys=$journeys"; } >> "$GITHUB_OUTPUT"
+
   check:
     runs-on: ubuntu-latest
     steps:
@@ -42,7 +85,18 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # `pnpm build` opens the built site in Chromium once, for the game's picture, the share picture and the icon.
-      - run: pnpm exec playwright install --with-deps chromium
+      # The browser is kept between runs, by Playwright's version; the system libraries it needs are put in each time.
+      - id: version
+        run: echo "playwright=$(pnpm exec playwright --version | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: browser
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.version.outputs.playwright }}-chromium
+      - if: steps.browser.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+      - if: steps.browser.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
       - run: pnpm build
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -53,10 +107,13 @@ jobs:
   # A called workflow gets no more than its caller grants: `actions: read` lets it download the site. Nothing may
   # write; the pictures are kept as each run's artifacts (the Owner, 2026-11-15: no ci-screens branch here).
   journeys:
-    needs: build
+    needs: [plan, build]
+    if: needs.plan.outputs.journeys == 'true'
     permissions:
       actions: read
       contents: read
     uses: ./.github/workflows/journeys.yml
     with:
       site-artifact: site
+      engines: ${{ needs.plan.outputs.full == 'true' && '["chromium", "webkit", "firefox"]' || '["chromium"]' }}
+      max-failures: ${{ needs.plan.outputs.full != 'true' && 1 || 0 }}

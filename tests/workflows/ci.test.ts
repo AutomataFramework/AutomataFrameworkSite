@@ -37,17 +37,19 @@ test('the called workflow is given the artifact', () => {
   expect(head(journeys)).toMatch(/workflow_call:\n {4}inputs:\n {6}site-artifact:/)
 })
 
-test('the journeys run once per engine, none cancelling another', () => {
+test('the journeys run per engine in two shards, and each engine has one check that no other cancels', () => {
   const engines = job(journeys, 'engines')
   expect(engines).toContain('engine: [chromium, webkit, firefox]')
   expect(engines).toContain('fail-fast: false')
-  expect(engines).toContain(`pnpm test:journeys --project ${expr('matrix.engine')}`)
+  const shards = job(journeys, 'shards')
+  expect(shards).toContain('shard: [1, 2]')
+  expect(shards).toContain(`pnpm test:journeys --project ${expr('matrix.engine')} --shard=${expr('matrix.shard')}/2`)
 })
 
 // Audit F7: a journey failed once on code that had just passed and the run kept nothing to say why.
 test('a failed journey leaves its trace and its error behind, for every engine', () => {
-  const engines = job(journeys, 'engines')
-  expect(engines).toMatch(
-    /- uses: actions\/upload-artifact@[0-9a-f]{40} # v\S+\n {8}if: failure\(\)\n {8}with:\n {10}name: test-results-\$\{\{ matrix\.engine \}\}\n {10}path: test-results\/\*\*/,
+  const shards = job(journeys, 'shards')
+  expect(shards).toMatch(
+    /- uses: actions\/upload-artifact@[0-9a-f]{40} # v\S+\n {8}if: failure\(\)\n {8}with:\n {10}name: test-results-\$\{\{ matrix\.engine \}\}-\$\{\{ matrix\.shard \}\}\n {10}path: test-results\/\*\*/,
   )
 })
