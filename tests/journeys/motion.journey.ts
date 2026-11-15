@@ -75,7 +75,9 @@ for (const size of SHOWN_AT) {
             return {
               animation: s.animationName,
               // A transition only happens where its duration is not nothing; the lists repeat to the longer one.
-              eased: s.transitionProperty.split(', ').filter((_, i) => durations[i % durations.length] !== '0s'),
+              eased: s.transitionProperty
+                .split(', ')
+                .filter((_, i) => durations[i % durations.length] !== '0s'),
             }
           })
         expect(animation, selector).toBe('arrive')
