@@ -4,7 +4,6 @@ import { expr, head, job, readWorkflow } from './read.ts'
 // These checks read the workflows' text because a workflow only runs on GitHub.
 const ci = readWorkflow('ci.yml')
 const journeys = readWorkflow('journeys.yml')
-const screens = job(journeys, 'screens')
 
 test('the workflow as a whole can only read the repository', () => {
   expect(head(ci)).toMatch(/^permissions:\n {2}contents: read$/m)
@@ -26,43 +25,16 @@ test("the build installs Chromium before it builds, because the build takes the 
   expect(build.indexOf('playwright install')).toBeLessThan(build.indexOf('run: pnpm build'))
 })
 
-test('only the call to journeys.yml may write', () => {
-  const call = job(ci, 'journeys')
-  expect(ci.match(/contents: write/g)).toHaveLength(1)
-  expect(call).toContain('uses: ./.github/workflows/journeys.yml')
-  expect(call).toMatch(/^ {6}contents: write$/m)
-  expect(call).toMatch(/^ {6}actions: read$/m)
+test('nothing may write, and nothing pushes a branch (the pictures are artifacts only)', () => {
+  for (const text of [ci, journeys, readWorkflow('site.yml')]) expect(text).not.toContain('git push')
+  expect(ci).not.toContain('contents: write')
+  expect(journeys).not.toContain('contents: write')
+  expect(journeys).not.toContain('\n  screens:')
+  expect(job(ci, 'journeys')).toMatch(/^ {6}actions: read$/m)
 })
 
-test('inside journeys.yml only screens asks to write, and its one push goes to ci-screens', () => {
-  expect(journeys.match(/contents: write/g)).toHaveLength(1)
-  expect(screens).toMatch(/^ {6}contents: write$/m)
-  expect(screens).toContain('needs: engines')
-  expect(journeys.match(/git push/g)).toHaveLength(1)
-  expect(screens).toContain('git push -q origin ci-screens')
-  expect(screens).toMatch(/group: ci-screens\n {6}cancel-in-progress: false/)
-})
-
-test('the screens job runs for every event but a pull request from a fork', () => {
-  // In a called workflow `github` is the caller's, so a guard on `push` alone would skip scheduled and hand-started runs.
-  expect(screens).toContain(
-    "if: always() && !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)",
-  )
-})
-
-test("a run of the real game never overwrites the stand-in game's pictures", () => {
-  // The real game's runs write only to their own folders (`live`, `pr-<n>-real`), and the trim keeps them.
-  expect(screens).toContain(`LATEST: ${expr('inputs.latest')}`)
-  expect(readWorkflow('site.yml')).toContain(
-    "format('pr-{0}-real', github.event.pull_request.number) || 'live'",
-  )
-  expect(screens).toContain('main | live | "$LATEST") ;;')
-  expect(screens).toContain('number%-real')
-})
-
-test('the called workflow is given the artifact and where to put the latest pictures', () => {
+test('the called workflow is given the artifact', () => {
   expect(head(journeys)).toMatch(/workflow_call:\n {4}inputs:\n {6}site-artifact:/)
-  expect(head(journeys)).toContain('latest:')
 })
 
 test('the journeys run once per engine, none cancelling another', () => {
@@ -78,12 +50,4 @@ test('a failed journey leaves its trace and its error behind, for every engine',
   expect(engines).toMatch(
     /- uses: actions\/upload-artifact@[0-9a-f]{40} # v\S+\n {8}if: failure\(\)\n {8}with:\n {10}name: test-results-\$\{\{ matrix\.engine \}\}\n {10}path: test-results\/\*\*/,
   )
-  // The pictures job downloads only `screens-*`, so this upload is never mistaken for a picture.
-  expect(screens).toContain("--pattern 'screens-*'")
-})
-
-test('ci-screens keeps only the newest pictures: main and the open pull requests', () => {
-  expect(screens).not.toContain('$COMMIT')
-  expect(screens).toContain('gh pr list --repo "$GITHUB_REPOSITORY" --state open')
-  expect(screens).toMatch(/^ {6}pull-requests: read$/m)
 })
