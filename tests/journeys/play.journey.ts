@@ -130,7 +130,8 @@ for (const size of [SIZES[4], SIZES[0]]) {
     })
 
     test.describe('with JavaScript off', () => {
-      test.use({ javaScriptEnabled: false })
+      // Nothing is seeded: Firefox cannot write a page's storage while its scripts are off, and there is no game to ask.
+      test.use({ javaScriptEnabled: false, storageState: { cookies: [], origins: [] } })
 
       test('the picture, the note, the facts and no Play button', async ({ page, request }) => {
         const facts = await siteFacts(request)
