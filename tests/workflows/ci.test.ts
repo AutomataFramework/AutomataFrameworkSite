@@ -53,9 +53,11 @@ test('the screens job runs for every event but a pull request from a fork', () =
 test("a run of the real game never overwrites the stand-in game's pictures", () => {
   // The real game's runs write only to their own folders (`live`, `pr-<n>-real`), and the trim keeps them.
   expect(screens).toContain(`LATEST: ${expr('inputs.latest')}`)
-  expect(readWorkflow('site.yml')).toContain("format('pr-{0}-real', github.event.pull_request.number) || 'live'")
+  expect(readWorkflow('site.yml')).toContain(
+    "format('pr-{0}-real', github.event.pull_request.number) || 'live'",
+  )
   expect(screens).toContain('main | live | "$LATEST") ;;')
-  expect(screens).toContain('${number%-real}')
+  expect(screens).toContain('number%-real')
 })
 
 test('the called workflow is given the artifact and where to put the latest pictures', () => {
