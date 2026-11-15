@@ -7,6 +7,12 @@ const ENGINES = ['chromium', 'webkit', 'firefox'] as const
 const LOCAL = 'http://127.0.0.1:8788'
 const baseURL = process.env.BASE_URL ?? LOCAL
 
+// A first visit to the real game is asked which language to play in before anything else (the game's own picker). The
+// journeys are about the page around the game, so each one starts as a player who has already chosen English: the same
+// setting the game's own journeys seed (`automata.<game id>.settings`). The picture step presses the picker's Go for the
+// first-visit look, and `tests/features/pictures` holds that.
+const ENGLISH = JSON.stringify({ format: 1, sections: { language: { format: 1, language: 'en' } } })
+
 // Annotated because the repo's tsconfig demands explicit types on everything exported.
 const config: PlaywrightTestConfig = defineConfig({
   testDir: 'tests/journeys',
@@ -23,6 +29,15 @@ const config: PlaywrightTestConfig = defineConfig({
     actionTimeout: 8_000,
     navigationTimeout: 15_000,
     reducedMotion: 'reduce',
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: new URL(baseURL).origin,
+          localStorage: [{ name: 'automata.crate-game.settings', value: ENGLISH }],
+        },
+      ],
+    },
     // A failed journey keeps Playwright's own record of it (a trace: every step, the page at each, the network and the
     // console), which CI uploads. Before this a journey that failed once on code that had just passed left nothing to read.
     trace: 'retain-on-failure',
