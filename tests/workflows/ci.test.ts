@@ -76,3 +76,9 @@ test('a failed journey leaves its trace and its error behind, for every engine',
   // The pictures job downloads only `screens-*`, so this upload is never mistaken for a picture.
   expect(screens).toContain("--pattern 'screens-*'")
 })
+
+test('ci-screens keeps only the newest pictures: main and the open pull requests', () => {
+  expect(screens).not.toContain('$COMMIT')
+  expect(screens).toContain('gh pr list --repo "$GITHUB_REPOSITORY" --state open')
+  expect(screens).toMatch(/^ {6}pull-requests: read$/m)
+})
