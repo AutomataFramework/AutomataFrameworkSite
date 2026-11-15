@@ -55,7 +55,12 @@ test.describe('phone-320x568: a 320 px phone', () => {
 // Review Focus 3: JavaScript off. The look, the icons and the facts are in the page itself, and the note about
 // JavaScript must read.
 test.describe('phone-390x844: with JavaScript off', () => {
-  test.use({ viewport: { width: 390, height: 844 }, javaScriptEnabled: false })
+  // Nothing is seeded: Firefox cannot write a page's storage while its scripts are off, and there is no game to ask.
+  test.use({
+    viewport: { width: 390, height: 844 },
+    javaScriptEnabled: false,
+    storageState: { cookies: [], origins: [] },
+  })
 
   test('the page still looks like itself, shows its icons and says what to do', async ({ page }) => {
     await page.goto('/')

@@ -73,3 +73,10 @@ test("the game's picture is first, and the names are the three the pages point a
     scale: 2,
   })
 })
+
+test("the game's picture is taken after the language is chosen, not of the flags", () => {
+  const game = PICTURES.find((picture) => picture.file === 'game.png')
+  expect(game?.ready).toContain('data-state="playing"')
+  expect(game?.ready).toContain('data-state="picking"')
+  expect(game?.first).toEqual({ screen: '#game[data-state="picking"]', press: '.automata-picker-go' })
+})

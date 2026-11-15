@@ -130,7 +130,8 @@ for (const size of [SIZES[4], SIZES[0]]) {
     })
 
     test.describe('with JavaScript off', () => {
-      test.use({ javaScriptEnabled: false })
+      // Nothing is seeded: Firefox cannot write a page's storage while its scripts are off, and there is no game to ask.
+      test.use({ javaScriptEnabled: false, storageState: { cookies: [], origins: [] } })
 
       test('the picture, the note, the facts and no Play button', async ({ page, request }) => {
         const facts = await siteFacts(request)
@@ -232,10 +233,12 @@ for (const size of [SIZES[0], SIZES[2]]) {
       const game = await play(page)
       await page.locator(FRAME).tap()
       const version = parseVersion(await (await request.get('/version.json')).text())
-      // The stand-in game has one button; the real game has three.
-      const names = version !== undefined && isCommit(version.game) ? ['Left', 'Right', 'Jump'] : ['Right']
-      for (const name of names) {
-        const touch = game.getByRole('button', { name, exact: true })
+      const real = version !== undefined && isCommit(version.game)
+      // The stand-in game has one button. The real game has two thumbs' halves (the walking one and the jumping one).
+      const spots = real
+        ? ['walk', 'jump'].map((half) => game.locator(`.automata-thumb-half[data-half="${half}"]`))
+        : [game.getByRole('button', { name: 'Right', exact: true })]
+      for (const touch of spots) {
         await expect(touch).toBeVisible()
         const box = await touch.boundingBox()
         expect(box?.x ?? -1).toBeGreaterThanOrEqual(0)
@@ -244,17 +247,25 @@ for (const size of [SIZES[0], SIZES[2]]) {
         expect((box?.y ?? 0) + (box?.height ?? 0)).toBeLessThanOrEqual(size.height)
         expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
         expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
-        // A real tap: Playwright checks that this button is what receives the touch at its middle, and fails if a layer
-        // of the page or of the game covers it. (A made-up event goes straight to the button and would not notice.)
+        // A real tap: Playwright checks that this is what receives the touch at its middle, and fails if a layer of the
+        // page or of the game covers it. (A made-up event goes straight to the target and would not notice.)
         await touch.tap()
       }
       const canvas = game.locator('canvas')
       const before = await canvas.screenshot()
-      const right = game.getByRole('button', { name: 'Right', exact: true })
-      // A tap cannot be held, so the hold alone is sent as events.
-      await right.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true })
+      // A tap cannot be held, so the hold alone is sent as events: the walking thumb lands and slides right.
+      const held = spots[0]
+      if (held === undefined) throw new Error('The journey has nothing to hold.')
+      // Where the middle is inside the game's own window, which is where its events say the finger is.
+      const { x, y } = await held.evaluate((element) => {
+        const rect = element.getBoundingClientRect()
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+      })
+      const finger = { pointerType: 'touch', isPrimary: true, pointerId: 7 }
+      await held.dispatchEvent('pointerdown', { ...finger, clientX: x, clientY: y })
+      await held.dispatchEvent('pointermove', { ...finger, clientX: x + 40, clientY: y })
       await expect.poll(async () => (await canvas.screenshot()).equals(before)).toBe(false)
-      await right.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true })
+      await held.dispatchEvent('pointerup', { ...finger, clientX: x + 40, clientY: y })
     })
   })
 }
