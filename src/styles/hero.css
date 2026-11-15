@@ -162,6 +162,15 @@ h1 {
   overflow: hidden;
   background: var(--raised);
   outline: 1px solid var(--words);
+  /* A finger on the game's place is the game's, never the browser's (the Owner, 2026-11-15): a quick second tap does
+     not zoom the page, a held finger selects nothing and offers no menu to save the picture, and a tap shows no grey
+     flash. A drag still scrolls the page while the game only plays itself. Inside the frame the framework does the
+     same for the game itself while it is played. */
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #game .poster,
@@ -213,8 +222,13 @@ h1 {
    scrolls the page. */
 @media (max-height: 499px) {
   #game[data-state="playing"] {
+    box-sizing: border-box;
     aspect-ratio: auto;
     height: 100svh;
+    /* Clear of the notch and the home bar: a frame is never told the screen's safe area, so the page keeps the game
+       inside it, and the touch buttons at the game's edges are never under either. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
   }
 }
 
