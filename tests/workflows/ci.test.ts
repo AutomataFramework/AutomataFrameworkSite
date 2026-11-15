@@ -51,8 +51,13 @@ test('the screens job runs for every event but a pull request from a fork', () =
 })
 
 test("a run of the real game never overwrites the stand-in game's pictures", () => {
-  expect(screens).toContain("endsWith(inputs.latest, '-real') || inputs.latest == 'live'")
+  // The real game's runs write only to their own folders (`live`, `pr-<n>-real`), and the trim keeps them.
   expect(screens).toContain(`LATEST: ${expr('inputs.latest')}`)
+  expect(readWorkflow('site.yml')).toContain(
+    "format('pr-{0}-real', github.event.pull_request.number) || 'live'",
+  )
+  expect(screens).toContain('main | live | "$LATEST") ;;')
+  expect(screens).toContain('number%-real')
 })
 
 test('the called workflow is given the artifact and where to put the latest pictures', () => {
@@ -75,4 +80,10 @@ test('a failed journey leaves its trace and its error behind, for every engine',
   )
   // The pictures job downloads only `screens-*`, so this upload is never mistaken for a picture.
   expect(screens).toContain("--pattern 'screens-*'")
+})
+
+test('ci-screens keeps only the newest pictures: main and the open pull requests', () => {
+  expect(screens).not.toContain('$COMMIT')
+  expect(screens).toContain('gh pr list --repo "$GITHUB_REPOSITORY" --state open')
+  expect(screens).toMatch(/^ {6}pull-requests: read$/m)
 })

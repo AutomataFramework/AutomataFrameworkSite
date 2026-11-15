@@ -125,6 +125,7 @@ jobs:
     permissions:
       actions: read
       contents: write
+      pull-requests: read
     uses: ./.github/workflows/journeys.yml
     with:
       site-artifact: site
