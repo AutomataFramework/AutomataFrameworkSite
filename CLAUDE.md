@@ -180,11 +180,28 @@ session on Sonnet at xhigh effort, before the next step starts.
 - Refresh sessions after 90 minutes.
 - Branches: `main` plus branches with CI running, five at most.
 - **Tests run only in GitHub-hosted CI, never locally.** Verify through the pull request's CI runs.
-- **Affected tests while working, the full suite before merge** (the Owner, 2026-11-15). Open the pull request as a
-  draft: while it is a draft, CI plays the journeys in Chromium only, only when the site's own files changed, and stops
-  at the first failure, so a round takes minutes. Mark it ready for review when the work is done; that run is the whole
-  suite in all three browsers, in six shards, and only a green full run is merged. The `full-tests` label asks for the
-  whole suite on a draft.
+- **Fast CI.** See the section below.
+
+## Fast CI
+
+Two speeds (the Owner, 2026-11-15), set up in `.github/workflows/ci.yml` and the `journeys.yml` it calls; its `plan`
+job reads the pull request's changed files and decides.
+
+- **A draft gets the quick run.** The Node tests the change reaches (Vitest `--changed=origin/main --bail=1`); the
+  journeys in Chromium only, stopping at the first failure (`--max-failures=1`), and only when the site's own files
+  (`src/`, the pages, `public/`, `scripts/`) or the journeys changed, or the pull request has the `screenshots` label
+  (the journeys take the pictures). When only journeys changed, just those play (Playwright
+  `--only-changed=origin/main`); a change to the site reaches every journey. Every job's name starts with `quick ` on a
+  draft, so a quick run never counts as a required check.
+- **The full run gates merge.** Marking the pull request ready for review, every push to `main`, the `full-tests` label,
+  or a change to the build or test setup (`package.json`, the lockfile, any `*.config.*`, `tsconfig*.json`,
+  `tests/fixtures/`, `.github/`) runs everything in all three browsers, in six shards (`journeys / shards (<engine>
+  <n>/2)`), each engine's `journeys / engines (<engine>)` check green only when both its shards passed. Only that run's
+  checks have the required names. `site.yml`'s real-game journeys always run whole.
+- **Always:** checkout with `fetch-depth: 0` (so `origin/main` is there to compare with), installs and Playwright
+  browsers cached, and a new push cancels the run it replaces.
+- **How to use it:** open the pull request as a draft, push as often as you like, and mark it ready for review when the
+  work is done. Only a green full run is merged.
 
 ## Structure
 
