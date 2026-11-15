@@ -140,12 +140,16 @@ export function createPlayer(
     if (state === 'watching') onPress()
   }
 
+  const noMenu = (event: Event): void => event.preventDefault()
+
   setState('ready')
   for (const button of buttons) {
     button.hidden = false
     button.addEventListener('click', onPress)
   }
   root.addEventListener('click', onTap)
+  // No right-click menu over the game's place: it would offer to save the picture, or hide the game mid-move.
+  root.addEventListener('contextmenu', noMenu)
 
   return {
     get state() {
@@ -157,6 +161,7 @@ export function createPlayer(
     destroy() {
       for (const button of buttons) button.removeEventListener('click', onPress)
       root.removeEventListener('click', onTap)
+      root.removeEventListener('contextmenu', noMenu)
       dropFrame()
     },
   }
