@@ -43,7 +43,9 @@ test('the journeys run per engine in two shards, and each engine has one check t
   expect(engines).toContain('fail-fast: false')
   const shards = job(journeys, 'shards')
   expect(shards).toContain('shard: [1, 2]')
-  expect(shards).toContain(`pnpm test:journeys --project ${expr('matrix.engine')} --shard=${expr('matrix.shard')}/2`)
+  expect(shards).toContain(
+    `pnpm test:journeys --project ${expr('matrix.engine')} --shard=${expr('matrix.shard')}/2`,
+  )
 })
 
 // Audit F7: a journey failed once on code that had just passed and the run kept nothing to say why.
