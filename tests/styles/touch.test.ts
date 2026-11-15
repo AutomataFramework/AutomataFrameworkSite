@@ -29,5 +29,6 @@ test("a finger on the game's place is never the browser's", () => {
 
 test('a game that fills a phone held sideways keeps inside the safe area', () => {
   const sideways = hero.slice(hero.indexOf('@media (max-height: 499px)'))
-  for (const side of ['top', 'right', 'bottom', 'left']) expect(sideways).toContain(`env(safe-area-inset-${side})`)
+  for (const side of ['top', 'right', 'bottom', 'left'])
+    expect(sideways).toContain(`env(safe-area-inset-${side})`)
 })
