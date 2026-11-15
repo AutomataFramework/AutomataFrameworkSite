@@ -50,15 +50,13 @@ jobs:
           path: dist
           if-no-files-found: error
 
-  # A called workflow gets no more than its caller grants: `actions: read` lets it download the site, and
-  # the right to write lets its `screens` job push the pictures to the ci-screens branch, and nothing else may write.
+  # A called workflow gets no more than its caller grants: `actions: read` lets it download the site. Nothing may
+  # write; the pictures are kept as each run's artifacts (the Owner, 2026-11-15: no ci-screens branch here).
   journeys:
     needs: build
     permissions:
       actions: read
-      contents: write
-      pull-requests: read
+      contents: read
     uses: ./.github/workflows/journeys.yml
     with:
       site-artifact: site
-      latest: ${{ github.event_name == 'push' && 'main' || format('pr-{0}', github.event.pull_request.number) }}

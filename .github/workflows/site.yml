@@ -124,12 +124,10 @@ jobs:
     needs: build-real
     permissions:
       actions: read
-      contents: write
-      pull-requests: read
+      contents: read
     uses: ./.github/workflows/journeys.yml
     with:
       site-artifact: site
-      latest: ${{ github.event_name == 'pull_request' && format('pr-{0}-real', github.event.pull_request.number) || 'live' }}
 
   # Runs only when `pick` says so, and (with no status function in the condition) only after the journeys passed.
   # `pick` already says no off `main`; the ref is checked here too, so a hand-started run on a branch can never
