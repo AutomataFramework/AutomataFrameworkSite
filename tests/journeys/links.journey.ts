@@ -1,4 +1,5 @@
 // A press on one of the page's own links (the top bar's, the tag's, the footer's "What works today") moves the keyboard
+// (A draft-only CI try, taken out again.)
 // and a screen reader to where the page travelled, as a browser's own jump does (audit F3). The page answers these
 // presses itself so that it can travel there smoothly, so it has to do that part by hand.
 import { expect, type Locator, test } from '@playwright/test'
