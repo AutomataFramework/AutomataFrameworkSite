@@ -58,6 +58,36 @@ for (const size of SHOWN_AT) {
       expect(await page.locator('h1').evaluate((element) => getComputedStyle(element).opacity)).toBe('1')
     })
 
+    // Why the test above failed about one run in eight in Firefox, on the real game: `.tag` is a link, and links eased
+    // `transform`, which `arrive` also animates. When the animation ended, Firefox started that transition from the
+    // animation's last fraction of a pixel, and the finished animation held the value it was handed for good, so the
+    // tag never came to rest. Nothing may be animated and eased on the same property, which is checked here from the
+    // styles themselves, in every engine, instead of waiting for a frame to land badly.
+    test('nothing the first screen animates is also eased by a transition', async ({ page }) => {
+      await page.goto('/')
+      for (const selector of ['.hero .tag', 'h1', '.lede', '.actions']) {
+        const { animation, eased } = await page
+          .locator(selector)
+          .first()
+          .evaluate((element) => {
+            const s = getComputedStyle(element)
+            const durations = s.transitionDuration.split(', ')
+            return {
+              animation: s.animationName,
+              // A transition only happens where its duration is not nothing; the lists repeat to the longer one.
+              eased: s.transitionProperty
+                .split(', ')
+                .filter((_, i) => durations[i % durations.length] !== '0s'),
+            }
+          })
+        expect(animation, selector).toBe('arrive')
+        expect(
+          eased.filter((property) => ['all', 'opacity', 'transform'].includes(property)),
+          selector,
+        ).toEqual([])
+      }
+    })
+
     test('every stamp is seen once its card is in the window', async ({ page }) => {
       await arrive(page)
       const stamps = await page.locator('.stamp').all()

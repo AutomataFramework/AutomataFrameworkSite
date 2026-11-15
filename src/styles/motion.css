@@ -3,8 +3,15 @@
 
 /* ---- A little motion, all of it here, none of it needed to read or press anything ---- */
 
-/* A button or a link answers a pointer and a press: the colour brightens, an underline thickens, a press sits 1 px lower. */
-a,
+/* A link's underline thickens under a pointer. Only a button also brightens and sits 1 px lower when pressed, so only a
+   button eases `filter` and `transform`. A link must not ease `transform`: the tag at the top of the first screen is a
+   link, and `arrive` (below) animates its `transform`. An element that is animated and eased on the same property can
+   end up stuck: Firefox started the transition as the animation ended, and the finished animation went on holding the
+   half pixel it was handed, so the tag never came to rest (about one run in eight, in a fresh Firefox). */
+a {
+  transition: text-decoration-thickness 140ms ease-out;
+}
+
 .btn {
   transition:
     filter 140ms ease-out,
