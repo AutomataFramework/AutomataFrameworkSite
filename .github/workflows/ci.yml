@@ -29,7 +29,7 @@ jobs:
   #   full      false: the Node tests the change reaches (Vitest's `--changed`), the journeys in Chromium only, and
   #             every run stops at its first failure
   #   journeys  false when none of the files the site is made of, or its journeys, changed: the journeys are left out
-  #   changed   true when only journeys changed, not the site: just those play (Playwright's `--only-changed`), since
+  #   only      true when only journeys changed, not the site: just those play (Playwright's `--only-changed`), since
   #             a change to the site itself reaches every journey, which Playwright cannot trace through the built site
   #   quick     `quick ` on a draft and empty otherwise: the start of every check's name, so a draft's quick run never
   #             has the name of a check main requires, and only a full run can let a pull request merge
@@ -41,7 +41,7 @@ jobs:
     outputs:
       full: ${{ steps.plan.outputs.full }}
       journeys: ${{ steps.plan.outputs.journeys }}
-      changed: ${{ steps.plan.outputs.changed }}
+      only: ${{ steps.plan.outputs.only }}
       quick: ${{ steps.plan.outputs.full != 'true' && 'quick ' || '' }}
     steps:
       - id: plan
@@ -53,7 +53,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          full=true journeys=true changed=false
+          full=true journeys=true only=false
           if [ "$EVENT" = pull_request ] && [ "$DRAFT" = true ] && [[ " $LABELS " != *" full-tests "* ]] &&
             changed="$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only)"; then
             printf 'This draft changes:\n%s\n' "$changed"
@@ -61,13 +61,13 @@ jobs:
             if ! grep -qE '^(tests/fixtures/|package\.json|pnpm-lock\.yaml|[^/]*\.config\.(ts|js)|tsconfig[^/]*\.json|\.github/)' <<<"$changed"; then
               full=false
               grep -qE '^(src/|index\.html|404\.html|public/|scripts/|tests/journeys/)' <<<"$changed" || journeys=false
-              grep -qE '^(src/|index\.html|404\.html|public/|scripts/)' <<<"$changed" || changed=true
+              grep -qE '^(src/|index\.html|404\.html|public/|scripts/)' <<<"$changed" || only=true
             fi
           fi
           # The `screenshots` label asks for the journeys, which take the pictures, on any draft.
           if [[ " $LABELS " == *" screenshots "* ]]; then journeys=true; fi
-          echo "full=$full journeys=$journeys changed=$changed"
-          { echo "full=$full"; echo "journeys=$journeys"; echo "changed=$changed"; } >> "$GITHUB_OUTPUT"
+          echo "full=$full journeys=$journeys only=$only"
+          { echo "full=$full"; echo "journeys=$journeys"; echo "only=$only"; } >> "$GITHUB_OUTPUT"
 
   check:
     needs: plan
@@ -139,4 +139,4 @@ jobs:
       site-artifact: site
       engines: ${{ needs.plan.outputs.full == 'true' && '["chromium", "webkit", "firefox"]' || '["chromium"]' }}
       max-failures: ${{ needs.plan.outputs.full != 'true' && 1 || 0 }}
-      only-changed: ${{ needs.plan.outputs.changed == 'true' }}
+      only-changed: ${{ needs.plan.outputs.only == 'true' }}
