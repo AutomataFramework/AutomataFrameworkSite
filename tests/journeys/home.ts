@@ -145,6 +145,20 @@ export async function play(
   return game
 }
 
+/**
+ * Waits until every font the game's page has asked for has finished downloading. Playing shows words in a weight the
+ * game did not need while it watched, so Firefox is still fetching that font when the state says "playing". A journey
+ * that then moves the page on (another arrival) makes Firefox drop the download, and it reports the drop as a failed
+ * request and a console error (NS_BINDING_ABORTED), which `watchForTrouble` rightly counts. The page did nothing wrong;
+ * the journey left too early. So a journey that plays and then moves on waits here first, which keeps the failure
+ * check as strict as it was.
+ */
+export const gameFontsSettled = (page: Page): Promise<void> =>
+  page
+    .frameLocator(FRAME)
+    .locator('body')
+    .evaluate(() => document.fonts.ready.then(() => undefined))
+
 /** The height of the game's frame, in pixels, or 0 when there is none. */
 export const frameHeight = async (page: Page): Promise<number> =>
   (await page.locator(FRAME).boundingBox())?.height ?? 0
