@@ -1,12 +1,16 @@
 # Progress
 
-Last updated: 2026-11-16 17:16 UTC (from `date`).
+Last updated: 2026-11-16 17:27 UTC (from `date`).
 
 ## Active milestone: the World slice (roadmap slice 3)
 
 ### Current work
 
 - Installing the new workflow and its CI gate (this repo's setup pull request).
+
+### Completed outcomes
+
+- None in this milestone yet.
 
 ### Remaining
 
@@ -18,3 +22,11 @@ Last updated: 2026-11-16 17:16 UTC (from `date`).
 ### Blockers
 
 - Waits on the test game's World demo.
+
+### Previews
+
+- The live site: https://automataframework.pages.dev (every merge to `main` deploys it).
+
+### Material decisions
+
+- None in this milestone yet.

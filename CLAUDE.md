@@ -317,7 +317,7 @@ Change a number or a model here and nowhere else.
 
 ## This repo
 
-What is particular to this repo, kept from its earlier notes.
+What is particular to this repo, kept from its earlier notes and the 2026-11-16 handoff.
 
 - **The site is static files on Cloudflare Pages**, at `automataframework.pages.dev` until there is a domain (the
   Owner, 2026-11-13). `deploy` is the only job that holds the Cloudflare token, and it never runs the game's code.
