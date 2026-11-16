@@ -71,6 +71,3 @@ pnpm exec wrangler pages dev dist
 
 Something went wrong? Read the last line the command printed: it says what is missing. The most common cause is an older
 Node, so check `node --version` says 24 or higher.
-
-How the work is organised is in [`CLAUDE.md`](CLAUDE.md); the plan, its audit and the progress tracker are in
-[`docs/superpowers/`](docs/superpowers/).
