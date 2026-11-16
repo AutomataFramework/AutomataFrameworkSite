@@ -8,6 +8,7 @@ import { isCommit, parseVersion } from '../../src/features/version/version.ts'
 import {
   button,
   FRAME,
+  gameFontsSettled,
   holdWatching,
   isGameRequest,
   isWatchRequest,
@@ -132,6 +133,12 @@ for (const size of SIZES) {
 
     test('each Play button hands the same game over', async ({ page }) => {
       const trouble = watchForTrouble(page)
+      // The game's fonts arrive a second late, every time, so a journey that moves on before they are in shows it on
+      // every run instead of one run in a few (the Firefox failure of 2026-11-16).
+      await page.route(/\/play\/.*\.woff2?(\?|$)/, async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 1_000))
+        await route.continue()
+      })
       for (const name of playNames(size.width)) {
         const documents: string[] = []
         page.on('request', (request) => {
@@ -149,6 +156,8 @@ for (const size of SIZES) {
         expect(await marked(page), name).toBe(true)
         expect(documents, name).toEqual(['?watch'])
         await expect(pageGame(page)).toHaveAttribute('data-state', 'playing')
+        // The game's fonts are in before the page moves on: a download dropped by a move is not the game's fault.
+        await gameFontsSettled(page)
         page.removeAllListeners('request')
       }
       expect(trouble()).toEqual([])

@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-11-16 17:27 UTC (from `date`).
+Last updated: 2026-11-16 18:32 UTC (from `date`).
 
 ## Active milestone: the World slice (roadmap slice 3)
 
@@ -10,7 +10,9 @@ Last updated: 2026-11-16 17:27 UTC (from `date`).
 
 ### Completed outcomes
 
-- None in this milestone yet.
+- The flaky Firefox journey "each Play button hands the same game over" (failed once on `main`, e5dfc97) is fixed at its
+  cause: the journey moved the page on while the game's font was still downloading. It now waits for the game's fonts,
+  and the journey delays them so the race shows on every run.
 
 ### Remaining
 
