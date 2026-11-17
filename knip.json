@@ -7,7 +7,6 @@
     "@fontsource-variable/fraunces",
     "@fontsource-variable/onest",
     "@fontsource/jetbrains-mono",
-    "@phosphor-icons/core",
-    "wrangler"
+    "@phosphor-icons/core"
   ]
 }
