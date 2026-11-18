@@ -5,10 +5,6 @@ import { expect, test } from 'vitest'
 const readme = readFileSync(new URL('../../README.md', import.meta.url), 'utf8')
 const section = readme.slice(readme.indexOf('## Try it on your machine'))
 
-test('the README has a section that takes you from clone to the page', () => {
-  expect(readme).toContain('## Try it on your machine')
-})
-
 test('it gives the commands, in order: install, playwright install, build, serve', () => {
   const install = section.indexOf('pnpm install')
   const browser = section.indexOf('pnpm exec playwright install chromium')

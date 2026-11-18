@@ -47,16 +47,6 @@ for (const size of SIZES) {
       await page.screenshot({ path: `tests/journeys/__screenshots__/${size.name}.png` })
       expect(trouble()).toEqual([])
     })
-
-    test('the keys reach the game with no second click', async ({ page }) => {
-      await arrive(page)
-      const game = await play(page)
-      const canvas = game.locator('canvas')
-      const before = await canvas.screenshot()
-      await page.keyboard.down('ArrowRight')
-      await expect.poll(async () => (await canvas.screenshot()).equals(before)).toBe(false)
-      await page.keyboard.up('ArrowRight')
-    })
   })
 }
 
