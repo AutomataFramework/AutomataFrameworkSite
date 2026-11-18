@@ -13,15 +13,21 @@ From a clean checkout in a cloud container, in order. First pick the Node versio
 
 `engines` asks for Node 24; the container's default `node` is 22, so every command runs with `export PATH=/opt/node24/bin:$PATH`. That folder has no `pnpm`: `pnpm` is `/opt/node22/bin/pnpm`, still on the PATH after the line above, and it runs under the Node 24 first on the PATH (`pnpm exec node -v` prints v24). The site has no database, payments, mail or sign-in. The game in the frame is the stand-in in `tests/fixtures/game`, unless `GAME_SOURCE` names another game's repo folder. The server is `wrangler pages dev`, which serves `dist/` the way Cloudflare Pages does, with no account, as `playwright.config.ts` does.
 
+Start clean from a fresh clone in the scratchpad, never in your own checkout, so nothing untracked there is touched. Set `SCRATCH` to the session's scratchpad first. The clone takes the checkout's committed `HEAD`: commit before you run it.
+
 ```sh
-export PATH=/opt/node24/bin:$PATH SCRATCH=${SCRATCH:-/tmp}
+export PATH=/opt/node24/bin:$PATH SCRATCH=${SCRATCH:?set SCRATCH to the scratchpad}
+rm -rf "$SCRATCH/site-verify" && git clone -q "$(git rev-parse --show-toplevel)" "$SCRATCH/site-verify"
+cd "$SCRATCH/site-verify"
 pnpm install --frozen-lockfile
 pnpm build
 WRANGLER_SEND_METRICS=false pnpm exec wrangler pages dev dist --ip 127.0.0.1 --port 8788 > "$SCRATCH/wrangler.log" 2>&1 &
-until curl -s -o /dev/null http://127.0.0.1:8788/; do sleep 1; done
+ready() { [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8788/)" = 200 ]; }
+for i in $(seq 60); do ready && break; sleep 1; done
+ready && echo READY || { echo "NOT READY: no 200 from 127.0.0.1:8788 after 60 tries" >&2; tail -n 20 "$SCRATCH/wrangler.log" >&2; false; }
 ```
 
-It is ready when `curl http://127.0.0.1:8788/` answers 200 and the log says "Ready on http://127.0.0.1:8788". Last clean start, timed with `date` before and after: 11 seconds from `git clean -xfd` in my run, 13 to 14 in a fresh session's (install and build 8, the server a few more), on commit 2fc87ac.
+It is ready when the last line prints READY: `curl http://127.0.0.1:8788/` answers 200 and the log says "Ready on http://127.0.0.1:8788". If it prints NOT READY, read the log lines it shows and see "When it breaks". Start times, timed with `date` before and after: the cold first start in a new container (nothing installed or cached yet) took about 21 to 23 seconds, on commit e379aea; a later clean start, with the pnpm store warm, took 11 seconds in my run and 13 to 14 in a fresh session's (install and build 8, the server a few more), on commit 2fc87ac.
 
 ## Drive it
 
@@ -40,20 +46,22 @@ One line each, from a person's side: where it starts, the steps, and what they s
 
 ## Stop it
 
-Stop every server it started and clear what it wrote, so the next run starts clean.
+Stop every server it started and delete the clone, so the next run starts clean. Your own checkout is never cleaned.
 
 ```sh
 pkill -f 'wrangler pages dev'; pkill workerd
-git clean -xfd
+rm -rf "$SCRATCH/site-verify" "$SCRATCH/wrangler.log"
 ```
 
-Run the second line only when nothing you want to keep is untracked (`git status --short`); it also removes `node_modules`, so the next start installs again. Check it: `git clean -ndx | wc -l` prints 0. Do not add `-e docs`: it is not anchored, so it also keeps every nested `docs` folder inside `node_modules`.
+Check it: `test -e "$SCRATCH/site-verify" || echo gone` prints gone, and `curl -s http://127.0.0.1:8788/` no longer answers.
 
 ## When it breaks
 
 A step that breaks or flakes is fixed in this skill first. Each known way a start or a step fails, what it looks like, and the fix:
 
 - Port 8788 already in use: `curl` answers at once but shows an old build. Run the stop commands, then start again.
+- NOT READY after 60 tries: the server did not answer 200. The lines printed from `$SCRATCH/wrangler.log` say why (a build error, a port in use); fix that, run the stop commands, then start again.
+- `SCRATCH` not set: the first line stops with "set SCRATCH to the scratchpad". Set it to the session's scratchpad folder.
 - `pnpm` or `node` not found, or `engines` complaints: the PATH line was skipped; Node 22 is the default. Use `/opt/node24/bin`.
 - The first screenshot is faded or the text is half there: motion was not reduced. Open the page with `reducedMotion: 'reduce'`.
 - A language picker covers the page: the `localStorage` seed above was not set before `goto`.
