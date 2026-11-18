@@ -11,7 +11,7 @@ The Automata Framework website: a static home page, built by Vite into `dist/`, 
 
 From a clean checkout in a cloud container, in order. First pick the Node version (or other runtime) that `engines` in `package.json` asks for. Then install, build, and start every stand-in for an outside service (a database, payments, mail, sign-in), never the real one.
 
-`engines` asks for Node 24; the container's default `node` is 22, so every command runs with `export PATH=/opt/node24/bin:$PATH`. The site has no database, payments, mail or sign-in. The game in the frame is the stand-in in `tests/fixtures/game`, unless `GAME_SOURCE` names another game's repo folder. The server is `wrangler pages dev`, which serves `dist/` the way Cloudflare Pages does, with no account, as `playwright.config.ts` does.
+`engines` asks for Node 24; the container's default `node` is 22, so every command runs with `export PATH=/opt/node24/bin:$PATH`. That folder has no `pnpm`: `pnpm` is `/opt/node22/bin/pnpm`, still on the PATH after the line above, and it runs under the Node 24 first on the PATH (`pnpm exec node -v` prints v24). The site has no database, payments, mail or sign-in. The game in the frame is the stand-in in `tests/fixtures/game`, unless `GAME_SOURCE` names another game's repo folder. The server is `wrangler pages dev`, which serves `dist/` the way Cloudflare Pages does, with no account, as `playwright.config.ts` does.
 
 ```sh
 export PATH=/opt/node24/bin:$PATH SCRATCH=${SCRATCH:-/tmp}
@@ -21,13 +21,13 @@ WRANGLER_SEND_METRICS=false pnpm exec wrangler pages dev dist --ip 127.0.0.1 --p
 until curl -s -o /dev/null http://127.0.0.1:8788/; do sleep 1; done
 ```
 
-It is ready when `curl http://127.0.0.1:8788/` answers 200 and the log says "Ready on http://127.0.0.1:8788". Last clean start, timed with `date` before and after: 12 seconds from `git clean -xfd` (install and build 8, the server a few more), on commit ff3e00a.
+It is ready when `curl http://127.0.0.1:8788/` answers 200 and the log says "Ready on http://127.0.0.1:8788". Last clean start, timed with `date` before and after: 12 seconds from `git clean -xfd` (install and build 8, the server a few more), on commit d929d30.
 
 ## Drive it
 
 Open it in a real browser: the Chromium and Playwright the container already has (`require('playwright')`, then `chromium.launch()`), at each size in the device matrix in Settings. Tap, click, type and press keys the way a person would, and find things by their label or role. Take a screenshot at deviceScaleFactor 1 for your own check, and save it in the scratchpad, never in the repo. The main screen, what it shows and how to use it:
 
-The main screen is the home page, `http://127.0.0.1:8788/`. Open it with `reducedMotion: 'reduce'`, as the journeys do, or the screenshot catches the page while it is still arriving. A first visit to the real game asks for a language, so seed `localStorage` before the page loads with the key `automata.crate-game.settings` and the value `{"format":1,"sections":{"language":{"format":1,"language":"en"}}}`. It shows the wordmark "automata", the bar ("What works today", "GitHub", and a Play button on a tablet or computer), the claim "Finish the game your agent started.", and the game's sheet with a "Play it" button. Wait for the `h1` (the role `heading`, level 1), then take the screenshot. Press "Play it": the game starts inside the page, and `#game` gets `data-state="playing"`. Sizes: small phone 390 by 844, tablet 820 by 1180, computer 1440 by 900 (the list is in `tests/journeys/sizes.ts`; the file wins where it differs).
+The main screen is the home page, `http://127.0.0.1:8788/`. Open it with `reducedMotion: 'reduce'`, as the journeys do, or the screenshot catches the page while it is still arriving. A first visit to the real game asks for a language, so seed `localStorage` before the page loads with the key `automata.crate-game.settings` and the value `{"format":1,"sections":{"language":{"format":1,"language":"en"}}}`. It shows the wordmark "automata"; on a tablet or computer (700 pixels wide or more, `BAR_AT` in `tests/journeys/home.ts`) the bar also holds "What works today", "GitHub" and the button "Play the game", and on a small phone the bar is only the wordmark; the claim "Finish the game your agent started.", and the game's sheet with a "Play it" button. Wait for the `h1` (the role `heading`, level 1), then take the screenshot. There are up to three Play buttons, found with `getByRole('button', { name, exact: true })`: "Play the game" in the bar (tablet and computer only), "Play the first game" in the hero, and "Play it" on the game's sheet; "Play" alone matches none. The journey presses "Play it": the game starts inside the page, and `#game` gets `data-state="playing"`. Sizes: small phone 390 by 844, tablet 820 by 1180, computer 1440 by 900 (the list is in `tests/journeys/sizes.ts`; the file wins where it differs).
 
 ## The journeys
 
@@ -44,10 +44,10 @@ Stop every server it started and clear what it wrote, so the next run starts cle
 
 ```sh
 pkill -f 'wrangler pages dev'; pkill workerd
-git clean -xfd -e docs
+git clean -xfd
 ```
 
-Run the second line only when nothing you want to keep is untracked; it also removes `node_modules`, so the next start installs again.
+Run the second line only when nothing you want to keep is untracked (`git status --short`); it also removes `node_modules`, so the next start installs again. Check it: `git clean -ndx | wc -l` prints 0. Do not add `-e docs`: it is not anchored, so it also keeps every nested `docs` folder inside `node_modules`.
 
 ## When it breaks
 
