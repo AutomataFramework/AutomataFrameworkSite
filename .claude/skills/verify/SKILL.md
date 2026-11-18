@@ -21,7 +21,7 @@ WRANGLER_SEND_METRICS=false pnpm exec wrangler pages dev dist --ip 127.0.0.1 --p
 until curl -s -o /dev/null http://127.0.0.1:8788/; do sleep 1; done
 ```
 
-It is ready when `curl http://127.0.0.1:8788/` answers 200 and the log says "Ready on http://127.0.0.1:8788". Last clean start, timed with `date` before and after: 12 seconds from `git clean -xfd` (install and build 8, the server a few more), on commit d929d30.
+It is ready when `curl http://127.0.0.1:8788/` answers 200 and the log says "Ready on http://127.0.0.1:8788". Last clean start, timed with `date` before and after: 11 seconds from `git clean -xfd` in my run, 13 to 14 in a fresh session's (install and build 8, the server a few more), on commit 2fc87ac.
 
 ## Drive it
 
