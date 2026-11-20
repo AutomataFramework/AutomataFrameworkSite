@@ -73,7 +73,13 @@ None yet.
 
 ## Flaky tests
 
-None yet.
+- `play.journey.ts:28`, "tablet-820x1180 > pressing each Play button starts the game inside the page" (Firefox, check
+  `journeys-real / shards (firefox 2/2)`, run 44684445315 on #63, 2026-11-20): failed with errors that were not empty:
+  "Request failed: …/play/assets/fredoka-latin-600-normal-*.woff2 (NS_BINDING_ABORTED)" and Firefox's "downloadable
+  font: download failed". Passed on the one re-run and on the head before (`a748d97`); the change did not touch it.
+  Likely the same race as the earlier Firefox font flake (the page moves on while the game's font is still
+  downloading), in a journey that fix did not reach; not proven and not fixed. Next step if it shows again: wait for
+  the game's fonts in this journey as the fixed one does.
 
 ## Lessons
 

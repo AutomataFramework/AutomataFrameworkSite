@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-11-17 03:58 UTC (from `date`).
+Last updated: 2026-11-20 14:56 UTC (from `date`).
 
 ## Active milestone: the World slice (roadmap slice 3)
 
@@ -18,15 +18,18 @@ Last updated: 2026-11-17 03:58 UTC (from `date`).
 
 ### Completed outcomes
 
+- The website demo uses World: #63 merged as `e9c29e6` (2026-11-20, reviewed head `b048686` plus a merge of main that
+  brought only rules and CI files), under the Owner's "Merge both" (decision card, 2026-11-20 07:39 UTC, with Examples
+  #81 `f551ea3`). Deploy run 44702098181 green; the live `version.json` read site `e9c29e6`, game `f551ea3`; the home
+  page shows the game's world map, its players and its recorded plays, and /play/ seats two players with each one's
+  keys. Left as a note: a level name longer than nine letters overflows its box.
 - The flaky Firefox journey "each Play button hands the same game over" (failed once on `main`, e5dfc97) is fixed at its
   cause: the journey moved the page on while the game's font was still downloading. It now waits for the game's fonts,
   and the journey delays them so the race shows on every run.
 
 ### Remaining
 
-- **The website demo uses World:** three levels with a door, for one or two players, and two levels joined on a world
-  map, so the demo shows what World makes. The test game already has the levels and the door; the site picks it up
-  once the test game has the world map part.
+- The website demo uses World: done (#63).
 - The crate's numbers change when the test game's E4 lands.
 
 ### Blockers
