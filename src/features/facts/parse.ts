@@ -158,11 +158,22 @@ export function parseFacts(input: {
     throw new FactsError('The game\'s LICENSE is missing or is not the MIT License, and the page says "MIT".')
   }
 
+  // The levels' names in the game's own language: `level.<id>.name` in the messages file of its `source`.
+  const words = project.content
+    .filter(({ type }) => type === 'messages')
+    .map(({ path }) => readObject(path, read(path)))
+    .find((file) => file.id === (project.source ?? 'en'))?.messages as Record<string, unknown> | undefined
+  const nameOf = (id: string): string => {
+    const name = words?.[`level.${id}.name`]
+    return typeof name === 'string' && name !== '' ? name : id
+  }
+
   const known: LevelRead[] = levels.flatMap(({ path, json }) =>
     typeof json.id === 'string' && Array.isArray(json.tiles)
       ? [
           {
             id: json.id,
+            name: nameOf(json.id),
             path,
             rows: json.tiles.filter((row): row is string => typeof row === 'string'),
             things: Array.isArray(json.things) ? json.things : [],

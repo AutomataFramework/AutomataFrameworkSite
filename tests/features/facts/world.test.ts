@@ -6,6 +6,7 @@ import { FactsError, type GameFacts, parseFacts } from '#src/features/facts/fact
 const PROJECT = `name = "Three Rooms"
 start = "one"
 players = 2   # two can play
+source = "en"
 [[content]]
 type = "level"
 path = "content/levels/one.json"
@@ -18,6 +19,12 @@ path = "content/levels/three.json"
 [[content]]
 type = "world"
 path = "content/world.json"
+[[content]]
+type = "messages"
+path = "content/messages/fr.json"
+[[content]]
+type = "messages"
+path = "content/messages/en.json"
 `
 const closed = ['#....#', '#....#', '######']
 const FILES: Record<string, string> = {
@@ -41,6 +48,12 @@ const FILES: Record<string, string> = {
       { level: 'three', at: { x: 14, y: 0 } },
     ],
   }),
+  // The words of the game's own language name its levels; another language's file is not read for them.
+  'content/messages/fr.json': JSON.stringify({ id: 'fr', messages: { 'level.one.name': 'Niveau 1' } }),
+  'content/messages/en.json': JSON.stringify({
+    id: 'en',
+    messages: { 'level.one.name': 'Level 1', 'level.two.name': 'Level 2', 'level.three.name': 'Level 3' },
+  }),
   'replays/one.json': '{"ticks":12,"finalHash":"0123456789abcdef"}',
   'replays/two.json': '{"ticks":30,"finalHash":"fedcba9876543210"}',
   LICENSE: 'MIT License\n',
@@ -54,9 +67,9 @@ test('the world map: every level where the world file puts it, the doors between
   expect(facts().world).toEqual({
     path: 'content/world.json',
     levels: [
-      { id: 'one', x: 0, y: 0, width: 6, height: 3 },
-      { id: 'two', x: 8, y: 0, width: 6, height: 3 },
-      { id: 'three', x: 14, y: 0, width: 6, height: 3 },
+      { id: 'one', name: 'Level 1', x: 0, y: 0, width: 6, height: 3 },
+      { id: 'two', name: 'Level 2', x: 8, y: 0, width: 6, height: 3 },
+      { id: 'three', name: 'Level 3', x: 14, y: 0, width: 6, height: 3 },
     ],
     doors: [
       { from: 'one', to: 'two' },
@@ -81,13 +94,27 @@ test('a game with no players line is for one, and a game with no world file is i
   const found = facts({ 'automata.toml': project, 'content/world.json': undefined })
   expect(found.players).toBe(1)
   expect(found.world).toEqual({
-    levels: [{ id: 'one', x: 0, y: 0, width: 6, height: 3 }],
+    levels: [{ id: 'one', name: 'Level 1', x: 0, y: 0, width: 6, height: 3 }],
     doors: [
       { from: 'one', to: 'two' },
       { from: 'two', to: 'one' },
     ],
     joins: [],
   })
+})
+
+test('a level the game gives no name, or a game with no words, is called by its id', () => {
+  const words = JSON.stringify({ id: 'en', messages: { 'level.one.name': 'Level 1' } })
+  expect(facts({ 'content/messages/en.json': words }).world.levels.map((l) => l.name)).toEqual([
+    'Level 1',
+    'two',
+    'three',
+  ])
+  const project = PROJECT.replace('source = "en"\n', '').replace(
+    /\[\[content\]\]\ntype = "messages"\npath = "content\/messages\/(fr|en)\.json"\n/g,
+    '',
+  )
+  expect(facts({ 'automata.toml': project }).world.levels.map((l) => l.name)).toEqual(['one', 'two', 'three'])
 })
 
 test('two levels that touch with a wall between them do not join', () => {

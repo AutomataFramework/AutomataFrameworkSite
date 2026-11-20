@@ -25,9 +25,9 @@ const REAL: GameFacts = {
   world: {
     path: 'content/world.json',
     levels: [
-      { id: 'level-1', x: 0, y: 0, width: 16, height: 9 },
-      { id: 'level-2', x: 20, y: 0, width: 16, height: 9 },
-      { id: 'level-3', x: 36, y: 0, width: 16, height: 9 },
+      { id: 'level-1', name: 'Level 1', x: 0, y: 0, width: 16, height: 9 },
+      { id: 'level-2', name: 'Level 2', x: 20, y: 0, width: 16, height: 9 },
+      { id: 'level-3', name: 'Level 3', x: 36, y: 0, width: 16, height: 9 },
     ],
     doors: [
       { from: 'level-1', to: 'level-2' },
@@ -141,7 +141,7 @@ test('the world map: a box for each level where it sits, an arrow for each door 
   expect(svg).toContain('role="img"')
   // Its spoken name says what it shows, in words.
   expect(svg).toMatch(
-    /aria-label="A map of 3 levels\. Level-1 has a door to level-2\. Level-2 has a door to level-1\. Level-2 and level-3 join edge to edge\."/,
+    /aria-label="A map of 3 levels\. A door joins Level 1 and Level 2, both ways\. Level 2 and Level 3 join edge to edge\."/,
   )
   expect(
     [...svg.matchAll(/<rect class="level" x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"/g)].map((m) =>
@@ -154,10 +154,15 @@ test('the world map: a box for each level where it sits, an arrow for each door 
     /<line class="door" x1="16" y1="[\d.]+" x2="20" y2="[\d.]+" marker-start="url\(#arrow\)" marker-end="url\(#arrow\)"/,
   )
   expect(svg).toContain('<line class="join" x1="36" y1="5" x2="36" y2="8"')
-  expect([...svg.matchAll(/<text [^>]*>([^<]*)<\/text>/g)].map((m) => m[1])).toEqual([
-    'level-1',
-    'level-2',
-    'level-3',
+  // Each level is labelled with the name the game gives it, in the middle of its box.
+  expect(
+    [...svg.matchAll(/<text class="name" x="([\d.]+)" y="([\d.]+)"[^>]*>([^<]*)<\/text>/g)].map((m) =>
+      m.slice(1),
+    ),
+  ).toEqual([
+    ['8', '4.5', 'Level 1'],
+    ['28', '4.5', 'Level 2'],
+    ['44', '4.5', 'Level 3'],
   ])
 })
 
@@ -170,7 +175,7 @@ test('a door one way has one arrow; a game with no world is its one level', () =
   expect(oneWay).not.toContain('marker-start')
   const alone = worldMap({
     ...REAL,
-    world: { levels: [{ id: '<b>', x: 0, y: 0, width: 6, height: 3 }], doors: [], joins: [] },
+    world: { levels: [{ id: 'b', name: '<b>', x: 0, y: 0, width: 6, height: 3 }], doors: [], joins: [] },
   })
   expect(alone).toContain('viewBox="-1 -1 8 5"')
   expect(alone).toContain('&lt;b&gt;')

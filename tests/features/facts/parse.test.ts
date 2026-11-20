@@ -48,7 +48,7 @@ test('the stand-in game', () => {
     levels: 1,
     players: 1,
     plays: ['replays/room.json'],
-    world: { levels: [{ id: 'room', x: 0, y: 0, width: 6, height: 3 }], doors: [], joins: [] },
+    world: { levels: [{ id: 'room', name: 'room', x: 0, y: 0, width: 6, height: 3 }], doors: [], joins: [] },
   })
 })
 

@@ -27,9 +27,9 @@ const REAL: GameFacts = {
   world: {
     path: 'content/world.json',
     levels: [
-      { id: 'level-1', x: 0, y: 0, width: 16, height: 9 },
-      { id: 'level-2', x: 20, y: 0, width: 16, height: 9 },
-      { id: 'level-3', x: 36, y: 0, width: 16, height: 9 },
+      { id: 'level-1', name: 'Level 1', x: 0, y: 0, width: 16, height: 9 },
+      { id: 'level-2', name: 'Level 2', x: 20, y: 0, width: 16, height: 9 },
+      { id: 'level-3', name: 'Level 3', x: 36, y: 0, width: 16, height: 9 },
     ],
     doors: [
       { from: 'level-1', to: 'level-2' },
@@ -56,7 +56,7 @@ test('every fact is written as words', () => {
     'levels-count': '3 levels',
     'plays-recorded': '2 plays of the game are recorded.',
     players: 'One or two players',
-    'doors-line': '2 doors lead to another level.',
+    'doors-line': 'A door joins Level 1 and Level 2, both ways.',
     'joins-line': '1 edge joins two levels, so you run from one into the other with no break.',
     'world-path': 'content/world.json',
   })
@@ -142,13 +142,27 @@ test('a block is written inside its element', () => {
   expect(filled.endsWith('</li></ul>')).toBe(true)
 })
 
+test('the doors in words match the map: one line for each pair of levels, one way or both', () => {
+  const oneWay: GameFacts = { ...REAL, world: { ...REAL.world, doors: [{ from: 'level-1', to: 'level-2' }] } }
+  expect(factWords(oneWay)['doors-line']).toBe('A door leads from Level 1 to Level 2.')
+  const two: GameFacts = {
+    ...REAL,
+    world: { ...REAL.world, doors: [...REAL.world.doors, { from: 'level-3', to: 'level-2' }] },
+  }
+  expect(factWords(two)['doors-line']).toBe('2 doors join two levels each.')
+})
+
 test('a game of one level, one player and one recorded play, with no world file', () => {
   const one: GameFacts = {
     ...REAL,
     levels: 1,
     players: 1,
     plays: ['replays/level-1.json'],
-    world: { levels: [{ id: 'level-1', x: 0, y: 0, width: 16, height: 9 }], doors: [], joins: [] },
+    world: {
+      levels: [{ id: 'level-1', name: 'Level 1', x: 0, y: 0, width: 16, height: 9 }],
+      doors: [],
+      joins: [],
+    },
   }
   expect(factWords(one)).toMatchObject({
     'levels-count': '1 level',

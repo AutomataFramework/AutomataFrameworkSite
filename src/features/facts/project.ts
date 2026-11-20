@@ -25,6 +25,8 @@ export interface Project {
   readonly content: readonly ContentFile[]
   /** The most who play at once: `players`, or 1 when the file has no such line. */
   readonly players: number
+  /** The language the game is written in (`source`), when the file says. */
+  readonly source?: string
 }
 
 /** The line without its `#` comment. A `#` inside double quotes is part of the value. */
@@ -53,6 +55,7 @@ export function readProject(text: string): Project {
   let name: string | undefined
   let start: string | undefined
   let players = 1
+  let source: string | undefined
   const content: ContentFile[] = []
   // `table` is the heading the lines belong to: '' before the first one, 'content' inside [[content]].
   let table = ''
@@ -87,6 +90,7 @@ export function readProject(text: string): Project {
     const value = pair[2] ?? ''
     if (table === '' && key === 'name') name = plainString(value, line)
     else if (table === '' && key === 'start') start = plainString(value, line)
+    else if (table === '' && key === 'source') source = plainString(value, line)
     else if (table === '' && key === 'players') {
       if (!/^[1-9][0-9]*$/.test(value)) {
         throw new FactsError(
@@ -114,5 +118,5 @@ export function readProject(text: string): Project {
       `${PROJECT_FILE} has no [[content]] table, so the game lists no files for the site to show.`,
     )
   }
-  return { name, start, content, players }
+  return { name, start, content, players, ...(source === undefined ? {} : { source }) }
 }

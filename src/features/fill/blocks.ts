@@ -98,27 +98,11 @@ function doorLine(a: Box, b: Box): { x1: number; y1: number; x2: number; y2: num
   }
 }
 
-/**
- * The world map as an SVG drawn in tiles: a box for each level where the world file puts it, with its id; one line for
- * each pair of levels a door joins, with an arrow at each end a door leads to; and a bar along each edge where two
- * levels join. Colours are the stylesheet's (by class), so the map is in the site's palette. Its spoken name says the
- * same in words.
- */
-export function worldMap(facts: GameFacts): string {
-  const { levels, doors, joins } = facts.world
-  const left = Math.min(...levels.map((l) => l.x))
-  const top = Math.min(...levels.map((l) => l.y))
-  const right = Math.max(...levels.map((l) => l.x + l.width))
-  const bottom = Math.max(...levels.map((l) => l.y + l.height))
-  const byId = new Map(levels.map((level) => [level.id, level]))
-
-  const said = [`A map of ${plural(levels.length, 'level', 'levels')}.`]
-  for (const door of doors) said.push(`${capital(door.from)} has a door to ${door.to}.`)
-  for (const join of joins) said.push(`${capital(join.a)} and ${join.b} join edge to edge.`)
-
-  // One line for each pair, in the order the first door between them comes.
+/** Each pair of levels a door joins, in the order of the first door between them, and which ways it leads. */
+function doorPairs(world: GameFacts['world']): { a: Box; b: Box; ab: boolean; ba: boolean }[] {
+  const byId = new Map(world.levels.map((level) => [level.id, level]))
   const pairs: { a: Box; b: Box; ab: boolean; ba: boolean }[] = []
-  for (const door of doors) {
+  for (const door of world.doors) {
     const from = byId.get(door.from)
     const to = byId.get(door.to)
     if (from === undefined || to === undefined) continue
@@ -129,6 +113,47 @@ export function worldMap(facts: GameFacts): string {
     else if (found.a === from) found.ab = true
     else found.ba = true
   }
+  return pairs
+}
+
+/**
+ * The doors as the map draws them, in a sentence: one line for each pair of levels, so the words count what a reader
+ * sees. "A door joins Level 1 and Level 2, both ways.", "A door leads from Level 1 to Level 2." or "2 doors join two
+ * levels each."
+ */
+export function doorsSentence(world: GameFacts['world']): string {
+  const pairs = doorPairs(world)
+  const [only] = pairs
+  if (only === undefined) return 'No door leads to another level.'
+  if (pairs.length > 1) return `${pairs.length} doors join two levels each.`
+  if (only.ab && only.ba) return `A door joins ${only.a.name} and ${only.b.name}, both ways.`
+  const [from, to] = only.ab ? [only.a, only.b] : [only.b, only.a]
+  return `A door leads from ${from.name} to ${to.name}.`
+}
+
+/**
+ * The world map as an SVG drawn in tiles: a box for each level where the world file puts it, with its name; one line for
+ * each pair of levels a door joins, with an arrow at each end a door leads to; and a bar along each edge where two
+ * levels join. Colours are the stylesheet's (by class), so the map is in the site's palette. Its spoken name says the
+ * same in words.
+ */
+export function worldMap(facts: GameFacts): string {
+  const { levels, doors, joins } = facts.world
+  const left = Math.min(...levels.map((l) => l.x))
+  const top = Math.min(...levels.map((l) => l.y))
+  const right = Math.max(...levels.map((l) => l.x + l.width))
+  const bottom = Math.max(...levels.map((l) => l.y + l.height))
+  const nameOf = new Map(levels.map((level) => [level.id, level.name]))
+
+  const said = [`A map of ${plural(levels.length, 'level', 'levels')}.`]
+  if (doors.length > 0) said.push(doorsSentence(facts.world))
+  for (const join of joins)
+    said.push(
+      `${capital(nameOf.get(join.a) ?? join.a)} and ${nameOf.get(join.b) ?? join.b} join edge to edge.`,
+    )
+
+  // One line for each pair, in the order the first door between them comes.
+  const pairs = doorPairs(facts.world)
 
   const parts: string[] = [
     '<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path class="arrow" d="M0 0 10 5 0 10z"/></marker></defs>',
@@ -140,7 +165,7 @@ export function worldMap(facts: GameFacts): string {
   }
   for (const level of levels) {
     parts.push(
-      `<text class="name" x="${n(level.x + 0.6)}" y="${n(level.y + 2.2)}">${escapeHtml(level.id)}</text>`,
+      `<text class="name" x="${n(level.x + level.width / 2)}" y="${n(level.y + level.height / 2)}" text-anchor="middle" dominant-baseline="central">${escapeHtml(level.name)}</text>`,
     )
   }
   for (const { a, b, ab, ba } of pairs) {

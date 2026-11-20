@@ -209,7 +209,7 @@
 
 .world .name {
   fill: var(--words);
-  font: 400 1.8px var(--measure);
+  font: 600 2.8px var(--measure);
 }
 
 .world .door {

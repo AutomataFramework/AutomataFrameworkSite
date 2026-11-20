@@ -6,6 +6,8 @@ import { FactsError } from './project.ts'
 /** One level as the parse has read it: its id, its rows of tiles and its things. */
 export interface LevelRead {
   readonly id: string
+  /** What the game calls it, in its own language (its id when it gives no name). */
+  readonly name: string
   readonly path: string
   readonly rows: readonly string[]
   readonly things: readonly unknown[]
@@ -17,6 +19,8 @@ export interface WorldFacts {
   readonly path?: string
   readonly levels: readonly {
     readonly id: string
+    /** What the game calls the level, in its own language: the map's label. */
+    readonly name: string
     readonly x: number
     readonly y: number
     readonly width: number
@@ -87,6 +91,7 @@ export function readWorld(input: {
   const byId = new Map(levels.map((level) => [level.id, level]))
   const sized = (level: LevelRead, x: number, y: number): Placed => ({
     id: level.id,
+    name: level.name,
     x,
     y,
     width: level.rows[0]?.length ?? 0,

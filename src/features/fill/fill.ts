@@ -10,7 +10,7 @@
 import { type Claim, checkClaims } from '../claims/claims.ts'
 import type { GameFacts } from '../facts/facts.ts'
 import { GAME_REPO, isCommit, shortCommit } from '../version/version.ts'
-import { claimCards, engineRows, escapeHtml, levelFile, worldMap } from './blocks.ts'
+import { claimCards, doorsSentence, engineRows, escapeHtml, levelFile, worldMap } from './blocks.ts'
 
 /** A failure with a plain sentence, ready to print in a build. */
 export class FillError extends Error {}
@@ -51,12 +51,6 @@ function playersWords(players: number): string {
   return `1 to ${players} players`
 }
 
-/** How many doors lead from one level to another, as a sentence. */
-function doorsLine(count: number): string {
-  if (count === 0) return 'No door leads to another level.'
-  return count === 1 ? '1 door leads to another level.' : `${count} doors lead to another level.`
-}
-
 /** How many edges join two levels into one place, as a sentence. */
 function joinsLine(count: number): string {
   if (count === 0) return 'No two levels join edge to edge.'
@@ -84,7 +78,7 @@ export function factWords(facts: GameFacts): Record<FactName, string> {
         ? 'One play of the game is recorded.'
         : `${facts.plays.length} plays of the game are recorded.`,
     players: playersWords(facts.players),
-    'doors-line': doorsLine(facts.world.doors.length),
+    'doors-line': doorsSentence(facts.world),
     'joins-line': joinsLine(facts.world.joins.length),
     // The file the map is drawn from: the world file, or the one level a game with no world file has.
     'world-path': facts.world.path ?? facts.level.path,

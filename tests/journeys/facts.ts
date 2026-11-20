@@ -23,7 +23,7 @@ export interface SiteFacts {
   readonly plays: readonly string[]
   readonly world: {
     readonly path?: string
-    readonly levels: readonly { readonly id: string }[]
+    readonly levels: readonly { readonly id: string; readonly name: string }[]
     readonly doors: readonly { readonly from: string; readonly to: string }[]
     readonly joins: readonly { readonly a: string; readonly b: string }[]
   }
@@ -68,12 +68,7 @@ export function words(facts: SiteFacts): Record<string, string> {
         : facts.players === 2
           ? 'One or two players'
           : `1 to ${facts.players} players`,
-    doorsLine:
-      facts.world.doors.length === 0
-        ? 'No door leads to another level.'
-        : facts.world.doors.length === 1
-          ? '1 door leads to another level.'
-          : `${facts.world.doors.length} doors lead to another level.`,
+    doorsLine: doorsWords(facts.world),
     joinsLine:
       facts.world.joins.length === 0
         ? 'No two levels join edge to edge.'
@@ -91,4 +86,22 @@ export function addresses(facts: SiteFacts): Record<'version' | 'files' | 'level
     level: `${GAME_REPO}/blob/${real ? facts.commit : 'main'}/${facts.level.path}`,
     checks: real ? `${GAME_REPO}/commit/${facts.commit}/checks` : `${GAME_REPO}/actions`,
   }
+}
+
+/** The doors as a reader counts them on the map: one line for each two levels a door joins, one way or both. */
+function doorsWords(world: SiteFacts['world']): string {
+  const name = (id: string): string => world.levels.find((level) => level.id === id)?.name ?? id
+  const ways = new Map<string, Set<string>>()
+  for (const { from, to } of world.doors) {
+    const key = [from, to].sort().join(' ')
+    ways.set(key, (ways.get(key) ?? new Set()).add(from))
+  }
+  if (ways.size === 0) return 'No door leads to another level.'
+  if (ways.size > 1) return `${ways.size} doors join two levels each.`
+  const first = world.doors[0]
+  if (first === undefined) return ''
+  const [, from] = [...ways][0] ?? []
+  return from?.size === 2
+    ? `A door joins ${name(first.from)} and ${name(first.to)}, both ways.`
+    : `A door leads from ${name(first.from)} to ${name(first.to)}.`
 }
