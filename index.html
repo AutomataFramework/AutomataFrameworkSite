@@ -88,11 +88,29 @@
         </div>
       </div></section>
 
-      <section class="part" id="checks"><div class="wrap split flip">
+      <section class="part" id="world"><div class="wrap split flip">
+        <div class="text">
+          <p class="kicker">Levels</p>
+          <h2><span data-fact="levels-count"></span> on one map.</h2>
+          <p class="sub">Where each level sits on the map is one small file. Walk through a door into another level, or run across the edge where two levels touch.</p>
+          <ul class="points">
+            <li><i data-icon="users-three"></i><span><strong data-fact="players"></strong> can play.</span></li>
+            <li><i data-icon="door-open"></i><span data-fact="doors-line"></span></li>
+            <li><i data-icon="arrows-left-right"></i><span data-fact="joins-line"></span></li>
+          </ul>
+        </div>
+        <div class="panel">
+          <p class="panel-head" data-fact="world-path"></p>
+          <div class="map" data-block="world-map"></div>
+          <p class="panel-foot">Each box is a level. An arrow is a door. A bright bar is where two levels join.</p>
+        </div>
+      </div></section>
+
+      <section class="part" id="checks"><div class="wrap split">
         <div class="text">
           <p class="kicker">Checks</p>
           <h2>Your agent can't quietly break your game.</h2>
-          <p class="sub">One play of the game is recorded. Every time the game changes, that play runs again in four places. All four have to end the same way, or the change does not pass.</p>
+          <p class="sub"><span data-fact="plays-recorded"></span> Every time the game changes, each recorded play runs again in four places. All four have to end the same way, or the change does not pass.</p>
           <p class="more"><a data-address="checks">See the latest check</a></p>
         </div>
         <div class="panel">

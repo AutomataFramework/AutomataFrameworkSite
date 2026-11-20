@@ -45,6 +45,10 @@ test('the stand-in game', () => {
       thing: { character: 'ball', x: 3.5, y: 1.5 },
     },
     replay: { path: 'replays/room.json', steps: 12, ending: '0123456789abcdef' },
+    levels: 1,
+    players: 1,
+    plays: ['replays/room.json'],
+    world: { levels: [{ id: 'room', x: 0, y: 0, width: 6, height: 3 }], doors: [], joins: [] },
   })
 })
 

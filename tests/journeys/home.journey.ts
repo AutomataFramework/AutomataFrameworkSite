@@ -105,9 +105,8 @@ for (const size of SIZES) {
       await expect(numbers.nth(2).locator('dd')).toHaveText(WORDS.numbersTail[2] ?? '')
       await expect(numbers.nth(3).locator('dt')).toHaveText(facts.licence)
       await expect(numbers.nth(3).locator('dd')).toHaveText(WORDS.numbersTail[3] ?? '')
-      const heads = page.locator('.panel-head')
-      await expect(heads.nth(0)).toHaveText(facts.level.path)
-      await expect(heads.nth(1)).toHaveText(`${facts.replay.path} · ${said.steps}`)
+      await expect(page.locator('#files .panel-head')).toHaveText(facts.level.path)
+      await expect(page.locator('#checks .panel-head')).toHaveText(`${facts.replay.path} · ${said.steps}`)
       const code = page.locator('.code')
       await expect(code).toContainText(facts.level.firstRow)
       await expect(code).toContainText(facts.level.lastRow)
@@ -128,12 +127,31 @@ for (const size of SIZES) {
       }
     })
 
-    test('the page says, below the game, why to care, in these words', async ({ page }) => {
+    test('the page says, below the game, why to care, in these words', async ({ page, request }) => {
+      const said = words(await siteFacts(request))
       await arrive(page)
       await expect(page.locator('.kicker')).toHaveText(WORDS.kickers)
-      await expect(page.getByRole('heading', { level: 2 })).toHaveText(WORDS.headings)
-      await expect(page.locator('.sub')).toHaveText(WORDS.subs)
-      await expect(page.locator('.points li')).toHaveText(WORDS.points)
+      const [files, checks, ...rest] = WORDS.headings
+      await expect(page.getByRole('heading', { level: 2 })).toHaveText([
+        files ?? '',
+        `${said.levelsCount}${WORDS.worldHeadingTail}`,
+        checks ?? '',
+        ...rest,
+      ])
+      const [filesSub, worldSub, checksTail] = WORDS.subs
+      await expect(page.locator('.sub')).toHaveText([
+        filesSub ?? '',
+        worldSub ?? '',
+        `${said.playsRecorded}${checksTail}`,
+      ])
+      await expect(page.locator('.points li')).toHaveText([
+        ...WORDS.points,
+        `${said.players}${WORDS.playersTail}`,
+        said.doorsLine ?? '',
+        said.joinsLine ?? '',
+      ])
+      await expect(page.locator('#world .panel-head')).toHaveText(said.worldPath ?? '')
+      await expect(page.locator('#world .panel-foot')).toHaveText(WORDS.worldFoot)
       await expect(page.locator('.more a')).toHaveText(WORDS.more)
       await expect(page.locator('#files .panel-foot')).toHaveText(WORDS.panelFoot)
       await expect(page.locator('.closing p')).toHaveText(WORDS.closing)

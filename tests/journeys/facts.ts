@@ -18,6 +18,15 @@ export interface SiteFacts {
     readonly thing?: { readonly character: string; readonly x: number; readonly y: number }
   }
   readonly replay: { readonly path: string; readonly steps: number; readonly ending: string }
+  readonly levels: number
+  readonly players: number
+  readonly plays: readonly string[]
+  readonly world: {
+    readonly path?: string
+    readonly levels: readonly { readonly id: string }[]
+    readonly doors: readonly { readonly from: string; readonly to: string }[]
+    readonly joins: readonly { readonly a: string; readonly b: string }[]
+  }
 }
 
 /** The game's repo on GitHub, where every address on the page points. */
@@ -48,6 +57,28 @@ export function words(facts: SiteFacts): Record<string, string> {
     steps: plural(facts.replay.steps, 'step', 'steps'),
     filesCount: plural(facts.files.length, 'small file', 'small files'),
     licence: facts.licence,
+    levelsCount: plural(facts.levels, 'level', 'levels'),
+    playsRecorded:
+      facts.plays.length === 1
+        ? 'One play of the game is recorded.'
+        : `${facts.plays.length} plays of the game are recorded.`,
+    players:
+      facts.players === 1
+        ? 'One player'
+        : facts.players === 2
+          ? 'One or two players'
+          : `1 to ${facts.players} players`,
+    doorsLine:
+      facts.world.doors.length === 0
+        ? 'No door leads to another level.'
+        : facts.world.doors.length === 1
+          ? '1 door leads to another level.'
+          : `${facts.world.doors.length} doors lead to another level.`,
+    joinsLine:
+      facts.world.joins.length === 0
+        ? 'No two levels join edge to edge.'
+        : `${facts.world.joins.length === 1 ? '1 edge joins two levels' : `${facts.world.joins.length} edges join two levels each`}, so you run from one into the other with no break.`,
+    worldPath: facts.world.path ?? facts.level.path,
   }
 }
 

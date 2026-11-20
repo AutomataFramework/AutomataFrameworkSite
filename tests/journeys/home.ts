@@ -15,7 +15,9 @@ export const WORDS = {
   fingers: 'Use the buttons on the game.',
   loading: 'Loading the game…',
   noScript: "This game needs JavaScript. Turn it on in your browser's settings, then load this page again.",
-  kickers: ['Built for agents', 'Checks', 'Where it stands'],
+  kickers: ['Built for agents', 'Levels', 'Checks', 'Where it stands'],
+  /** The world section's heading is the number of levels (a fact) and these words. */
+  worldHeadingTail: ' on one map.',
   headings: [
     'That whole level is one small file.',
     "Your agent can't quietly break your game.",
@@ -24,12 +26,17 @@ export const WORDS = {
   ],
   subs: [
     'A game is small files with plain names. Your agent finds the right one, changes it, and the game changes.',
-    'One play of the game is recorded. Every time the game changes, that play runs again in four places. All four have to end the same way, or the change does not pass.',
+    'Where each level sits on the map is one small file. Walk through a door into another level, or run across the edge where two levels touch.',
+    // After the number of recorded plays, which is a fact.
+    ' Every time the game changes, each recorded play runs again in four places. All four have to end the same way, or the change does not pass.',
   ],
   points: [
     'You can read it. Each # is a wall and each dot is air.',
     'Nothing is hidden. What is in the file is what the game plays.',
   ],
+  /** After how many can play, which is a fact; the world section's other two points are facts whole. */
+  playersTail: ' can play.',
+  worldFoot: 'Each box is a level. An arrow is a door. A bright bar is where two levels join.',
   more: ["See all of the game's files", 'See the latest check'],
   panelFoot: 'Part of the file is shown here. Read the whole file',
   closing: 'Not yet. Follow the toolkit on GitHub and you will see the day it is ready.',

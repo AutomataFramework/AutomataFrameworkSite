@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { CLAIMS, titleShown } from '#src/features/claims/claims.ts'
 import type { GameFacts } from '#src/features/facts/facts.ts'
-import { claimCards, engineRows, escapeHtml, levelFile } from '#src/features/fill/blocks.ts'
+import { claimCards, engineRows, escapeHtml, levelFile, worldMap } from '#src/features/fill/blocks.ts'
 
 const REAL: GameFacts = {
   name: 'Crate Game',
@@ -19,6 +19,22 @@ const REAL: GameFacts = {
     thing: { character: 'crate', x: 9.5, y: 7.5 },
   },
   replay: { path: 'replays/level-1.json', steps: 360, ending: '77be68a6e1859241' },
+  levels: 3,
+  players: 2,
+  plays: ['replays/level-1.json', 'replays/level-2.json'],
+  world: {
+    path: 'content/world.json',
+    levels: [
+      { id: 'level-1', x: 0, y: 0, width: 16, height: 9 },
+      { id: 'level-2', x: 20, y: 0, width: 16, height: 9 },
+      { id: 'level-3', x: 36, y: 0, width: 16, height: 9 },
+    ],
+    doors: [
+      { from: 'level-1', to: 'level-2' },
+      { from: 'level-2', to: 'level-1' },
+    ],
+    joins: [{ a: 'level-2', b: 'level-3', open: 3, line: { x1: 36, y1: 5, x2: 36, y2: 8 } }],
+  },
 }
 const withLevel = (level: Partial<GameFacts['level']>): GameFacts => ({
   ...REAL,
@@ -117,4 +133,46 @@ test("the claims: one card each, numbered 01 to 05, with its title, its line and
     expect(card).toContain('<span class="stamp building"><span>Being built</span></span>')
     expect(card).not.toContain('data-icon')
   }
+})
+
+test('the world map: a box for each level where it sits, an arrow for each door and a bar for each join', () => {
+  const svg = worldMap(REAL)
+  expect(svg).toMatch(/^<svg [^>]*viewBox="-1 -1 54 11"/)
+  expect(svg).toContain('role="img"')
+  // Its spoken name says what it shows, in words.
+  expect(svg).toMatch(
+    /aria-label="A map of 3 levels\. Level-1 has a door to level-2\. Level-2 has a door to level-1\. Level-2 and level-3 join edge to edge\."/,
+  )
+  expect(
+    [...svg.matchAll(/<rect class="level" x="(\d+)" y="(\d+)" width="(\d+)" height="(\d+)"/g)].map((m) =>
+      m.slice(1).join(','),
+    ),
+  ).toEqual(['0,0,16,9', '20,0,16,9', '36,0,16,9'])
+  // One line for the pair of doors, with an arrow at each end, because each level leads to the other.
+  expect(svg.match(/<line class="door"/g)).toHaveLength(1)
+  expect(svg).toMatch(
+    /<line class="door" x1="16" y1="[\d.]+" x2="20" y2="[\d.]+" marker-start="url\(#arrow\)" marker-end="url\(#arrow\)"/,
+  )
+  expect(svg).toContain('<line class="join" x1="36" y1="5" x2="36" y2="8"')
+  expect([...svg.matchAll(/<text [^>]*>([^<]*)<\/text>/g)].map((m) => m[1])).toEqual([
+    'level-1',
+    'level-2',
+    'level-3',
+  ])
+})
+
+test('a door one way has one arrow; a game with no world is its one level', () => {
+  const oneWay = worldMap({
+    ...REAL,
+    world: { ...REAL.world, doors: [{ from: 'level-1', to: 'level-2' }], joins: [] },
+  })
+  expect(oneWay).toMatch(/<line class="door" [^>]*marker-end="url\(#arrow\)"/)
+  expect(oneWay).not.toContain('marker-start')
+  const alone = worldMap({
+    ...REAL,
+    world: { levels: [{ id: '<b>', x: 0, y: 0, width: 6, height: 3 }], doors: [], joins: [] },
+  })
+  expect(alone).toContain('viewBox="-1 -1 8 5"')
+  expect(alone).toContain('&lt;b&gt;')
+  expect(alone).not.toContain('<line')
 })

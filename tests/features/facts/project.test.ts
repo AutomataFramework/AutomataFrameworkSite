@@ -31,7 +31,16 @@ test('reads the name, the first level and every content file, past comments and 
       { type: 'character', path: 'content/characters/hero.json' },
       { type: 'character', path: 'content/characters/crate.json' },
     ],
+    players: 1,
   })
+})
+
+test('players is the most who play at once: a whole number, else a sentence naming the line', () => {
+  // Below a [[content]] heading, a players line belongs to that table, not to the game.
+  expect(readProject(`${REAL}\nplayers = 2\n`).players).toBe(1)
+  expect(readProject(`players = 2 # two\n${REAL}`).players).toBe(2)
+  expect(() => readProject(`players = 0\n${REAL}`)).toThrow(/players = 0/)
+  expect(() => readProject(`players = 1.5\n${REAL}`)).toThrow(/whole number/)
 })
 
 test('a # inside a quoted value is not a comment', () => {
