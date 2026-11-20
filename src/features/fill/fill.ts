@@ -10,7 +10,7 @@
 import { type Claim, checkClaims } from '../claims/claims.ts'
 import type { GameFacts } from '../facts/facts.ts'
 import { GAME_REPO, isCommit, shortCommit } from '../version/version.ts'
-import { claimCards, engineRows, escapeHtml, levelFile } from './blocks.ts'
+import { claimCards, doorsSentence, engineRows, escapeHtml, levelFile, worldMap } from './blocks.ts'
 
 /** A failure with a plain sentence, ready to print in a build. */
 export class FillError extends Error {}
@@ -27,8 +27,14 @@ export type FactName =
   | 'level-path'
   | 'replay-path'
   | 'replay-ending'
+  | 'levels-count'
+  | 'plays-recorded'
+  | 'players'
+  | 'doors-line'
+  | 'joins-line'
+  | 'world-path'
 export type AddressName = 'version' | 'files' | 'level' | 'checks'
-type BlockName = 'level-file' | 'engines' | 'claims'
+type BlockName = 'level-file' | 'engines' | 'claims' | 'world-map'
 
 const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`
 
@@ -36,6 +42,20 @@ const plural = (count: number, one: string, many: string): string => `${count} $
 function list(items: readonly string[]): string {
   if (items.length < 2) return items.join('')
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
+
+/** How many play at once, as a sentence's start: "One player", "One or two players", "1 to 4 players". */
+function playersWords(players: number): string {
+  if (players <= 1) return 'One player'
+  if (players === 2) return 'One or two players'
+  return `1 to ${players} players`
+}
+
+/** How many edges join two levels into one place, as a sentence. */
+function joinsLine(count: number): string {
+  if (count === 0) return 'No two levels join edge to edge.'
+  const edges = count === 1 ? '1 edge joins two levels' : `${count} edges join two levels each`
+  return `${edges}, so you run from one into the other with no break.`
 }
 
 /** Every fact as the words the page shows. */
@@ -52,6 +72,16 @@ export function factWords(facts: GameFacts): Record<FactName, string> {
     'level-path': facts.level.path,
     'replay-path': facts.replay.path,
     'replay-ending': facts.replay.ending,
+    'levels-count': plural(facts.levels, 'level', 'levels'),
+    'plays-recorded':
+      facts.plays.length === 1
+        ? 'One play of the game is recorded.'
+        : `${facts.plays.length} plays of the game are recorded.`,
+    players: playersWords(facts.players),
+    'doors-line': doorsSentence(facts.world),
+    'joins-line': joinsLine(facts.world.joins.length),
+    // The file the map is drawn from: the world file, or the one level a game with no world file has.
+    'world-path': facts.world.path ?? facts.level.path,
   }
 }
 
@@ -87,6 +117,7 @@ export function fillPage(html: string, facts: GameFacts, claims: readonly Claim[
     'level-file': levelFile(facts),
     engines: engineRows(facts),
     claims: claimCards(claims),
+    'world-map': worldMap(facts),
   }
   const known = <T extends string>(table: Record<T, string>, name: string): name is T => name in table
 

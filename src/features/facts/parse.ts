@@ -3,6 +3,7 @@
 import { REQUIRED_CHECKS } from '../pick/pick.ts'
 import { isCommit } from '../version/version.ts'
 import { FactsError, PROJECT_FILE, readProject } from './project.ts'
+import { type LevelRead, readWorld, type WorldFacts } from './world.ts'
 
 /** The file the build writes at the site's root, beside `version.json`. */
 export const FACTS_FILE = 'facts.json'
@@ -32,6 +33,14 @@ export interface GameFacts {
   }
   /** The recorded play of that level. */
   readonly replay: { readonly path: string; readonly steps: number; readonly ending: string }
+  /** How many levels the game has. */
+  readonly levels: number
+  /** The most who play at once. */
+  readonly players: number
+  /** Every recorded play of one of the game's levels (`replays/<level>.json`), in the levels' order. */
+  readonly plays: readonly string[]
+  /** The world map: the levels where they sit, the doors between them and the edges that join. */
+  readonly world: WorldFacts
 }
 
 /** The names a person reads for the checks the site requires of the game. */
@@ -101,16 +110,11 @@ export function parseFacts(input: {
       throw new FactsError(`${PROJECT_FILE} lists "${path}", which is not inside the game's own folder.`)
   }
 
-  // The level: the content file of type `level` whose own id is the one a new game opens.
-  let found: { path: string; json: Record<string, unknown> } | undefined
-  for (const { type, path } of project.content) {
-    if (type !== 'level') continue
-    const json = readObject(path, read(path))
-    if (json.id === project.start) {
-      found = { path, json }
-      break
-    }
-  }
+  // Every level, in the project file's order; the one shown is the one whose own id is the one a new game opens.
+  const levels: { path: string; json: Record<string, unknown> }[] = project.content
+    .filter(({ type }) => type === 'level')
+    .map(({ path }) => ({ path, json: readObject(path, read(path)) }))
+  const found = levels.find(({ json }) => json.id === project.start)
   if (found === undefined) {
     throw new FactsError(
       `${PROJECT_FILE} says start = "${project.start}", and no level among its content files has that id.`,
@@ -154,6 +158,39 @@ export function parseFacts(input: {
     throw new FactsError('The game\'s LICENSE is missing or is not the MIT License, and the page says "MIT".')
   }
 
+  // The levels' names in the game's own language: `level.<id>.name` in the messages file of its `source`.
+  const words = project.content
+    .filter(({ type }) => type === 'messages')
+    .map(({ path }) => readObject(path, read(path)))
+    .find((file) => file.id === (project.source ?? 'en'))?.messages as Record<string, unknown> | undefined
+  const nameOf = (id: string): string => {
+    const name = words?.[`level.${id}.name`]
+    return typeof name === 'string' && name !== '' ? name : id
+  }
+
+  const known: LevelRead[] = levels.flatMap(({ path, json }) =>
+    typeof json.id === 'string' && Array.isArray(json.tiles)
+      ? [
+          {
+            id: json.id,
+            name: nameOf(json.id),
+            path,
+            rows: json.tiles.filter((row): row is string => typeof row === 'string'),
+            things: Array.isArray(json.things) ? json.things : [],
+          },
+        ]
+      : [],
+  )
+  const worldEntry = project.content.find(({ type }) => type === 'world')
+  const world = readWorld({
+    levels: known,
+    start: project.start,
+    ...(worldEntry === undefined
+      ? {}
+      : { world: { path: worldEntry.path, json: readObject(worldEntry.path, read(worldEntry.path)) } }),
+  })
+  const plays = known.map(({ id }) => `replays/${id}.json`).filter((path) => read(path) !== undefined)
+
   return {
     name: project.name,
     commit,
@@ -170,5 +207,9 @@ export function parseFacts(input: {
       ...(thing === undefined ? {} : { thing }),
     },
     replay: { path: replayPath, steps: replay.ticks, ending: replay.finalHash },
+    levels: levels.length,
+    players: project.players,
+    plays,
+    world,
   }
 }

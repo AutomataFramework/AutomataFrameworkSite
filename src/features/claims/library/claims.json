@@ -2,7 +2,7 @@
   {
     "id": "checks",
     "title": "Your agent can't quietly break your game",
-    "line": "One recorded play, run again in four places on every change.",
+    "line": "Recorded plays, run again in four places on every change.",
     "state": "works",
     "proof": "same-in-every-engine"
   },

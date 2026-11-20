@@ -189,6 +189,43 @@
   white-space: nowrap;
 }
 
+/* The world map, drawn in tiles from the game's world file: each level a raised box with a pale edge and its id, a
+   door an arrowed line in the mark colour (an edge, never words), and a join a thick bar in the words' colour. */
+.map {
+  padding: 20px;
+}
+
+.world {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.world .level {
+  fill: var(--raised);
+  stroke: var(--quiet);
+  stroke-width: 0.12;
+}
+
+.world .name {
+  fill: var(--words);
+  font: 600 2.8px var(--measure);
+}
+
+.world .door {
+  stroke: var(--mark);
+  stroke-width: 0.25;
+}
+
+.world .arrow {
+  fill: var(--mark);
+}
+
+.world .join {
+  stroke: var(--words);
+  stroke-width: 0.6;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

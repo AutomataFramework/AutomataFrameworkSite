@@ -264,7 +264,7 @@ for (const size of SIZES) {
             getComputedStyle(element).paddingBottom,
           ]),
         )
-      expect(padding).toHaveLength(4)
+      expect(padding).toHaveLength(5)
       const wanted = size.width >= 1024 ? '128px' : '80px'
       for (const [top, bottom] of padding) expect([top, bottom]).toEqual([wanted, wanted])
     })
