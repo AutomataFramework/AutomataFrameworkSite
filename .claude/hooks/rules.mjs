@@ -202,11 +202,14 @@ function parseShell(src) {
       }
       if (ch === '<' && src[i + 1] === '<' && src[i + 2] === '<') { endWord(); i += 3; continue; } // here-string: next word is data
       if (ch === ' ' || ch === '\t') { endWord(); i++; continue; }
-      if ((ch === '>' || ch === '<') && word === null) { // redirection: skip its target word
+      if ((ch === '>' || ch === '<') && word === null) { // redirection: its target is not a word; an output target is kept
+        const writes = ch === '>';
         i++;
-        if (src[i] === '>' || src[i] === '&') i++;
+        if (src[i] === '>' || src[i] === '&' || (writes && src[i] === '|')) i++;
         while (src[i] === ' ') i++;
+        const from = i;
         while (i < src.length && !/[\s;&|()]/.test(src[i])) i++;
+        if (writes) (cmd.redirects ??= []).push(src.slice(from, i).replace(/['"]/g, ''));
         continue;
       }
       if (/^[0-9]$/.test(ch) && word === null && (src[i + 1] === '>' || (src[i + 1] === '<' && src[i + 2] !== '<'))) { i++; continue; }
@@ -311,7 +314,7 @@ function simpleCommands(src, baseCwd, depth = 0) {
     if (prog === 'eval' && depth < 4) { result.push(...simpleCommands(words.slice(1).join(' '), cwd, depth + 1)); continue; }
     if (prog === 'cd' && !c.nested) { const to = words[1]; if (to && !to.startsWith('-')) cwd = isAbsolute(to) ? to : resolve(cwd, to.replace(/^~(?=\/|$)/, process.env.HOME ?? '~')); continue; }
     if (prog === 'export' && !c.nested) { for (const w of words.slice(1)) if (ENV_WORD.test(w)) { const [k, ...v] = w.split('='); exported[k] = v.join('='); } continue; }
-    result.push({ prog, path: words[0], args: words.slice(1), env, cwd, heredoc: c.heredoc, heredocQuoted: c.heredocQuoted === true });
+    result.push({ prog, path: words[0], args: words.slice(1), env, cwd, heredoc: c.heredoc, heredocQuoted: c.heredocQuoted === true, redirects: c.redirects ?? [] });
   }
   return result;
 }
@@ -1248,7 +1251,7 @@ function checkOtherRoutes(cmd, config, deny, ctx) {
     }
     if (file && /(^|\/)\.claude\/hooks\/rules(\.test)?\.mjs$/.test(resolve(cmd.cwd, file))) return; // the hook and its own test, run by hand
     if (cmd.prog === 'node' && hasFlag(a, ['--check', '-c'])) return; // a syntax check runs nothing
-    if (text && (GH_IN_SCRIPT.test(text) || GH_IN_SCRIPT_MORE.test(text))) { deny(refusal(ROUTE_RULE, `${cmd.prog} runs a script that calls gh to change a pull request`, 'run the gh command in Bash, where the hooks read it')); return; }
+    if (text && (ghWriteText(text) || GH_ISSUE_WRITE.test(text) || GIT_PUSH_RISKY.test(text) || GIT_PUSH_LIST.test(text))) { deny(refusal(ROUTE_RULE, `${cmd.prog} runs a script that calls gh to change a pull request`, 'run the gh command in Bash, where the hooks read it')); return; }
     if (text && GITHUB_API.test(text) && WRITE_WORDS.test(text)) deny(refusal(ROUTE_RULE, `${cmd.prog} runs a script that writes to the GitHub API`, 'use gh api with the REST path (the hooks judge it), or the GitHub MCP tool'));
     return;
   }
@@ -1272,28 +1275,50 @@ function checkOtherRoutes(cmd, config, deny, ctx) {
 // parallel, a shell it does not know, a pager or editor git runs) can hide a gh write, so a gh write
 // anywhere in the text that is not a gh command the hook judged is refused. Text a command only
 // carries (a commit message, a pull request title or body) is left out first.
-const GH_WORD = /\bgh\s+(?:-{1,2}[\w-]+(?:[= ]\S+)?\s+)*[a-z]|['"]gh['"]\s*[,\]]/g;
-const DATA_FLAGS = new Set(['-m', '--message', '-b', '--body', '-t', '--title', '--subject']);
 const HOOKS_OFF = /disableAllHooks|\bhooksPath\b/i;
 // Files that make git, gh or Claude Code run something later, or switch the hooks off.
 const GUARDED_FILE = /(^|[\s'"=:/~])(\.git\/(hooks|config|info\/attributes)\b|\.gitconfig\b|\.gitattributes\b|\.config\/(gh|git)\/|\.claude\/settings(\.local)?\.json\b|managed-settings\.json\b|\.claude\.json\b)/;
 const READ_PROGS = new Set(['cat', 'ls', 'head', 'tail', 'less', 'grep', 'rg', 'stat', 'file', 'wc', 'diff', 'jq', 'cd', 'git', 'test', '[', 'realpath', 'readlink', 'sha256sum', 'md5sum', 'true', 'node']);
 const GUARDED_REDIRECT = />{1,2}\|?\s*['"]?[^\s'";&|]*(\.git\/(hooks|config|info)|\.gitconfig|\.gitattributes|\.config\/(gh|git)\/|\.claude\/settings|\.claude\.json|managed-settings)/;
 const ghWriteText = (t) => GH_IN_SCRIPT.test(t) || GH_IN_SCRIPT_MORE.test(t) || /\bgh\s+(api|pr|issue|release|workflow|repo|ruleset|secret|variable|run)\b[^\n]*\b(DELETE|PATCH|PUT|POST|--input|-[fF]\s)/.test(t);
+// A push that rewrites or deletes a branch or writes main, and gh calls that change an issue or pull request.
+const GIT_PUSH_RISKY = /\bgit\b[^\n;&|]*\spush\b[^\n;&|]*(\s(--force[\w-]*|-[a-zA-Z]*f[a-zA-Z]*|--delete|-d|--mirror|--all|--prune)(?=\s|$|['"])|\s['"]?\+\S|\s\S*:(refs\/heads\/)?(main|master)\b|\s(main|master)(?=\s|$|['"])|\s:\S)/;
+const GIT_PUSH_LIST = /['"]git['"]\s*,\s*['"]push['"][^\]\n]*['"](--force[\w-]*|-[a-zA-Z]*f[a-zA-Z]*|--delete|-d|--mirror|--all|--prune|\+[^'"]*|[^'"]*:(refs\/heads\/)?(main|master)|main|master)['"]/;
+const GH_ISSUE_WRITE = /\bgh\s+(issue|pr)\s+(reopen|edit|close|create|merge|ready|delete|lock|unlock|transfer|pin|unpin)\b|['"]gh['"]\s*,\s*['"](issue|pr)['"]\s*,\s*['"](reopen|edit|close|create|merge|ready|delete|transfer)['"]/;
+// Text that, run by some program, writes to GitHub or a branch out of the hooks' sight.
+const dangerText = (t) => ghWriteText(t) || GH_ISSUE_WRITE.test(t) || (GITHUB_API.test(t) && WRITE_WORDS.test(t)) || GIT_PUSH_RISKY.test(t) || GIT_PUSH_LIST.test(t);
+// Programs that run another program, now or later, in a way the hook does not read: refused outright.
+const HIDDEN_RUNNERS = new Set(['watch', 'parallel', 'sem', 'tmux', 'screen', 'byobu', 'zellij', 'dtach', 'abduco', 'entr', 'chronic', 'nq', 'at', 'batch', 'atq', 'systemd-run', 'firejail', 'bwrap', 'unshare', 'nsenter', 'chroot', 'pkexec', 'strace', 'ltrace', 'valgrind', 'rlwrap', 'expect', 'fakeroot', 'proot', 'gdb', 'sg', 'newgrp', 'crontab', 'inotifywait', 'fswatch', 'nodemon', 'chokidar', 'lefthook', 'husky']);
+// With such text in the command, only these may run, and the first four only without writing a file.
+const TEXT_SAFE = new Set(['echo', 'printf', 'cat', 'jq', 'gh', 'git', 'ls', 'grep', 'rg', 'head', 'tail', 'wc', 'test', '[', 'true', 'false', 'sort', 'uniq', 'cut', 'date', 'for', 'do', 'done', 'while', 'until', 'if', 'then', 'else', 'elif', 'fi', 'in', '{', '}', '!']);
+const WRITES_FILE = (c) => (c.redirects ?? []).some((r) => r && !/^(\d+|-|\/dev\/(null|stdout|stderr))$/.test(r));
+// Where a path argument or redirect really points, from the command's own folder.
+const GUARDED_PATH = /(^|\/)\.git\/(hooks(\/|$)|config$|info\/attributes$)|(^|\/)\.gitconfig$|(^|\/)\.gitattributes$|\/\.config\/(gh|git)(\/|$)|(^|\/)\.claude\/settings(\.local)?\.json$|managed-settings\.json$|(^|\/)\.claude\.json$/;
+const realPath = (cwd, p) => resolve(cwd, String(p).replace(/^~(?=\/|$)/, process.env.HOME ?? '~'));
 function checkBashText(text, cmds, config, deny) {
   if (config.routes?.enabled === false) return;
   if (HOOKS_OFF.test(text)) { deny(refusal(ROUTE_RULE, 'a command that names disableAllHooks or core.hooksPath, which switch hooks off or swap them', 'leave the hooks as they are')); return; }
-  let rest = text;
-  for (const c of cmds) for (let i = 0; i < c.args.length - 1; i++) if (DATA_FLAGS.has(c.args[i]) && c.args[i + 1].length > 2) rest = rest.split(c.args[i + 1]).join(' ');
-  if (ghWriteText(rest)) {
-    const seen = (rest.match(GH_WORD) ?? []).length;
-    const judged = cmds.filter((c) => c.prog === 'gh' && !c.fromScript).length;
-    if (seen > judged) { deny(refusal(ROUTE_RULE, 'a gh write inside something the hook does not read as a gh command (a wrapper, a pager, another shell, a string or a file written here)', 'run the gh command on its own in Bash; write notes that quote gh commands with the Write tool, as .md or .txt')); return; }
-  }
-  if (GUARDED_FILE.test(text) && (GUARDED_REDIRECT.test(text) || cmds.some((c) => !READ_PROGS.has(c.prog) || (c.prog === 'node' && !/^\.?\/?\.claude\/hooks\/rules\.mjs$/.test(c.args[0] ?? ''))))) { deny(refusal(ROUTE_RULE, 'a command that touches git hooks, git or gh config, or Claude Code settings, which can run programs later or switch the hooks off', 'leave those files as they are; list a change to them as a command for the owner')); return; }
+  const runner = cmds.find((c) => HIDDEN_RUNNERS.has(c.prog));
+  if (runner) { deny(refusal(ROUTE_RULE, `${runner.prog}, which runs another program out of the hooks' sight`, 'run the command itself, in the foreground')); return; }
+  const touched = cmds.find((c) => {
+    const reader = READ_PROGS.has(c.prog) && !(c.prog === 'node' && !/^\.?\/?\.claude\/hooks\/rules\.mjs$/.test(c.args[0] ?? ''));
+    if ((c.redirects ?? []).some((r) => r && GUARDED_PATH.test(realPath(c.cwd, r)))) return true;
+    return !reader && c.args.some((a) => { const v = a.startsWith('-') ? a.split('=').slice(1).join('=') : a; return v && GUARDED_PATH.test(realPath(c.cwd, v)); });
+  });
+  if (touched || (GUARDED_FILE.test(text) && (GUARDED_REDIRECT.test(text) || cmds.some((c) => !READ_PROGS.has(c.prog) || (c.prog === 'node' && !/^\.?\/?\.claude\/hooks\/rules\.mjs$/.test(c.args[0] ?? '')))))) { deny(refusal(ROUTE_RULE, 'a command that touches git hooks, git or gh config, or Claude Code settings, which can run programs later or switch the hooks off', 'leave those files as they are; list a change to them as a command for the owner')); return; }
   // PATH set on or before a call swaps which gh, git or curl runs.
   if (/(^|[\s;&|(`])(export\s+|declare\s+-x\s+|env\s+)?PATH\+?=/.test(text) && cmds.some((c) => ['gh', 'git', 'curl', 'wget'].includes(c.prog) || scriptTool(c.prog))) { deny(refusal(ROUTE_RULE, 'PATH set in the same command as gh, git, curl or a script, which can swap the program that runs', 'run the command with the usual PATH')); return; }
   if (cmds.some((c) => c.prog === 'hash' && c.args.includes('-p'))) deny(refusal(ROUTE_RULE, 'hash -p, which swaps the program a name runs', 'run the command with the usual PATH'));
+}
+// Run after the per-command checks, so a call they refuse gets their own reason first.
+function checkMixedText(text, cmds, config, deny) {
+  if (config.routes?.enabled === false) return;
+  // Escapes a program may turn back into a new line or tab are read as one.
+  const decoded = text.replace(/\\[nr]/g, '\n').replace(/\\t/g, '\t');
+  if (dangerText(decoded)) {
+    const odd = cmds.find((c) => !c.fromScript && (!TEXT_SAFE.has(c.prog) || (['echo', 'printf', 'cat', 'jq'].includes(c.prog) && WRITES_FILE(c))));
+    if (odd) { deny(refusal(ROUTE_RULE, `a GitHub or push write in the same command as ${odd.prog === '#unreadable' ? 'a program the hook cannot read' : odd.prog}, which could run it or save it to run later`, 'run the gh or git command on its own in Bash; write notes that quote gh commands with the Write tool, as .md or .txt')); }
+  }
 }
 // git runs other programs through these settings (a pager, an editor, a hook folder, a filter, an alias,
 // ssh), so only the ones that run nothing may be set with -c, git config or GIT_* variables.
@@ -1326,7 +1351,7 @@ function checkMakefile(cmd, config, deny) {
   for (const f of files) {
     const t = readText(resolve(dir, f));
     if (t === null) { deny(refusal(ROUTE_RULE, `${cmd.prog} runs ${f}, which cannot be read before it runs`, 'write the file first, then run it in a later call')); return; }
-    if (ghWriteText(t) || (GITHUB_API.test(t) && WRITE_WORDS.test(t)) || HOOKS_OFF.test(t)) { deny(refusal(ROUTE_RULE, `${cmd.prog} runs ${f}, whose recipes write to GitHub`, 'run the gh command in Bash, where the hooks read it')); return; }
+    if (dangerText(t) || HOOKS_OFF.test(t)) { deny(refusal(ROUTE_RULE, `${cmd.prog} runs ${f}, whose recipes write to GitHub`, 'run the gh command in Bash, where the hooks read it')); return; }
   }
 }
 // Write, Edit and MultiEdit: no file that runs later may carry a gh write, and nothing may switch the hooks off.
@@ -1345,7 +1370,7 @@ function checkWriteRoutes(input, config, root, deny) {
   const note = /\.(md|mdx|txt)$/i.test(path);
   if (HOOKS_OFF.test(added) && !note) { deny(refusal(ROUTE_RULE, `${path} gains disableAllHooks or core.hooksPath`, 'leave the hooks on')); return; }
   if (/(^|\/)\.claude\/settings\.json$/.test(path) && t && /\.claude\/hooks\/rules\.mjs/.test(t.before ?? '') && !/\.claude\/hooks\/rules\.mjs/.test(t.after ?? '')) { deny(refusal(ROUTE_RULE, `${path} loses the rule hooks`, 'keep the rules.mjs hook lines')); return; }
-  if (RUNS_LATER.test(path) && (ghWriteText(added) || (GITHUB_API.test(added) && WRITE_WORDS.test(added)))) deny(refusal(ROUTE_RULE, `${path} would carry a gh or GitHub API write that runs later, out of the hooks' sight`, 'run the gh command in Bash, where the hooks read it; quote gh commands only in .md or .txt notes'));
+  if ((RUNS_LATER.test(path) || /^#!/.test(String(t?.after ?? input.content ?? ''))) && dangerText(added)) deny(refusal(ROUTE_RULE, `${path} would carry a gh or GitHub API write that runs later, out of the hooks' sight`, 'run the gh command in Bash, where the hooks read it; quote gh commands only in .md or .txt notes'));
 }
 // True when every URL an HTTP tool call names can be read and none is GitHub's API: no config file
 // (-K/--config), no URL taken from a variable, a substitution or a file. Otherwise the call is judged
@@ -1659,6 +1684,7 @@ function preToolUse(root, config, input, ctx) {
         check(cmd, scope.config, deny, { ...ctx, root: scope.root });
       }
     }
+    if (!reasons.length) checkMixedText(String(ti.command ?? ''), cmds, base, deny);
   } else if (/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(name)) {
     checkWriteRoutes(ti, base, root, deny);
     if (!reasons.length) checkFileWrite(ti, base, root, deny);
