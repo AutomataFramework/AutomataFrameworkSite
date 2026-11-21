@@ -24,7 +24,9 @@ test("the build has Chromium before it builds, because the build takes the site'
   const image = /\n {4}container:\n {6}image: mcr\.microsoft\.com\/playwright:/.test(build)
   if (!image) {
     expect(build).toContain('pnpm exec playwright install --with-deps chromium')
-    expect(build.indexOf('playwright install')).toBeGreaterThan(build.indexOf('pnpm install --frozen-lockfile'))
+    expect(build.indexOf('playwright install')).toBeGreaterThan(
+      build.indexOf('pnpm install --frozen-lockfile'),
+    )
     expect(build.indexOf('playwright install')).toBeLessThan(build.indexOf('run: pnpm build'))
   }
 })
