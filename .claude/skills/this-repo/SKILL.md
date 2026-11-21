@@ -51,8 +51,8 @@ What is particular to this repo, kept from its earlier notes and the 2026-11-16 
 
 ## Fast CI here
 
-- Set up in `.github/workflows/ci.yml` and the `journeys.yml` it calls. A draft runs the Node tests the change
-  reaches; the journeys in Chromium only, stopping at the first failure (`--max-failures=1`), and only when the site's
+- Set up in `.github/workflows/ci.yml` and the `journeys.yml` it calls. A draft runs every Node test, stopping
+  at the first failure (they take seconds; "CI speed" in CLAUDE.md); the journeys in Chromium only, stopping at the first failure (`--max-failures=1`), and only when the site's
   own files (`src/`, the pages, `public/`, `scripts/`) or the journeys changed, or the pull request has the
   `screenshots` label (the journeys take the pictures). When only journeys changed, just those play (Playwright
   `--only-changed=origin/main`); a change to the site reaches every journey.
