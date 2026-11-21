@@ -476,7 +476,8 @@ const configArgs = (config) => config.flatMap((c) => ['-c', c]);
 // The commits a push would add: on no remote-tracking ref. The default branch is
 // fetched first (once per run, bounded) so commits already on it, such as a web
 // merge whose committer is GitHub, are never judged. With no remote-tracking ref
-// at all nothing is judged here (commitVerify still judges each new commit).
+// at all nothing is judged here (commitVerify still judges each new commit). This is the set
+// commit-authors judges in CI: a pull request's own commits, never those already on the base.
 const fetched = new Set();
 function outgoingCommits(cwd, srcs, env, config) {
   const def = defaultBranch(config);
@@ -487,18 +488,25 @@ function outgoingCommits(cwd, srcs, env, config) {
   }
   const any = git(cwd, ['for-each-ref', '--count=1', 'refs/remotes'], env);
   if (!any.ok || !any.out) return [];
-  const allowed = (config.identity?.allowCommitters ?? []).map(parseIdent);
   const seen = new Set();
   const out = [];
   for (const src of [].concat(srcs)) {
-    const r = git(cwd, ['log', '--format=%H%x00%an%x00%ae%x00%cn%x00%ce%x00%B%x1e', '-n', '200', src, '--not', '--remotes'], env);
+    const r = git(cwd, ['log', '--format=%H%x00%an%x00%ae%x00%cn%x00%ce%x00%P%x00%B%x1e', '-n', '200', src, '--not', '--remotes'], env);
     if (r.ok) for (const rec of r.out.split('\x1e')) { const sha = rec.replace(/^\n/, '').split('\x00')[0]; if (sha && !seen.has(sha)) { seen.add(sha); out.push(rec); } }
   }
   return out.join('\x1e').split('\x1e').map((s) => s.replace(/^\n/, '')).filter(Boolean).map((rec) => {
-    const [sha, an, ae, cn, ce, body] = rec.split('\x00');
-    return { sha, author: { name: an, email: ae }, committer: { name: cn, email: ce }, message: body ?? '' };
-  }).filter((k) => !allowed.some((a) => sameIdent(a, k.committer)));
+    const [sha, an, ae, cn, ce, parents, body] = rec.split('\x00');
+    return { sha, author: { name: an, email: ae }, committer: { name: cn, email: ce }, parents: parents.split(' ').filter(Boolean).length, message: body ?? '' };
+  });
 }
+// A merge made on GitHub (the merge button or API, "Update branch") is committed by GitHub and cannot
+// carry the owner as committer. It passes when the owner authored it, as commit-authors in CI lets
+// GitHub's committer through (scripts/check-commit-authors.ts, findProblems). Every other commit
+// GitHub committed, such as a web edit, is judged like any other.
+const identityOk = (k, want, config) => sameIdent(k.author, want) && (sameIdent(k.committer, want)
+  || (k.parents > 1 && (config.identity?.allowCommitters ?? []).map(parseIdent).some((a) => sameIdent(a, k.committer))));
+// A commit already on a remote-tracking ref (a pull that fast-forwards onto main) is not a new commit.
+const onRemote = (cwd, ref = 'HEAD') => { const r = git(cwd, ['for-each-ref', '--count=1', '--contains', ref, 'refs/remotes']); return r.ok && r.out !== ''; };
 const localBranches = (cwd) => { const r = git(cwd, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']); return r.ok ? r.out.split('\n').filter(Boolean) : []; };
 // Every branch a push sends: each refspec's source; --all, --branches, --mirror or a
 // glob refspec send every local branch.
@@ -610,7 +618,7 @@ function checkIdentity(cmd, config, deny) {
   }
   if (g.sub === 'push' && !hasFlag(g.rest, ['--delete', '-d', '-n', '--dry-run'])) {
     for (const k of outgoingCommits(g.cwd, pushSources(g.rest, g.cwd), gitEnv(cmd), config)) {
-      if (!sameIdent(k.author, want) || !sameIdent(k.committer, want)) {
+      if (!identityOk(k, want, config)) {
         deny(refusal(`Every commit is authored by ${showIdent(want)} (CLAUDE.md, Identity).`, `outgoing commit ${k.sha.slice(0, 7)} is by ${showIdent(k.author)}, committed by ${showIdent(k.committer)}`, `${fix}, then rewrite the unpushed commit: git commit --amend --reset-author --no-edit (or rebase the unpushed range with --exec 'git commit --amend --reset-author --no-edit')`));
         break;
       }
@@ -929,6 +937,7 @@ function stripFooter(body) {
   return ls.slice(0, i).join('\n').trimEnd();
 }
 const PR_RULE = 'Pull request bodies end with the owner\'s "Requested by" line and carry no Claude attribution (CLAUDE.md, Identity; release).';
+const PR_EDIT_RULE = 'A pull request\'s title and body are edited with gh pr edit or the GitHub MCP tool, never with raw gh api on pulls (Owner, 2026-11-21: no route around the hooks).';
 function checkPrBodyBash(cmd, config, deny) {
   if (cmd.prog !== 'gh' || !on(config, 'prBody')) return;
   const p = ghParts(cmd);
@@ -942,6 +951,7 @@ function checkPrBodyBash(cmd, config, deny) {
   } else {
     const api = ghApi(cmd, config);
     if (!api || !/^repos\/[^/]+\/[^/]+\/pulls(\/\d+)?$/.test(api.path) || api.method === 'GET') return;
+    if (/\/\d+$/.test(api.path) && (api.fields.body !== undefined || api.fields.title !== undefined || api.inputUnknown)) { deny(refusal(PR_EDIT_RULE, `gh api ${api.method} ${api.path} edits the pull request's words through the raw API`, 'from inside the repo\'s folder, gh pr edit <n> --body-file <file> (or --title <title>), or the GitHub MCP update_pull_request tool')); return; }
     if (api.inputUnknown) { deny(refusal(PR_RULE, `gh api ${api.path} --input that could not be read as JSON before the call`, 'write the JSON to a file in the repo and pass --input <file>')); return; }
     if (api.fields.body === undefined) { if (/pulls$/.test(api.path)) deny(refusal(PR_RULE, `gh api ${api.path} with no body`, 'write the body to a JSON file and pass --input <file>')); return; }
     body = api.fields.body;
@@ -1625,10 +1635,11 @@ function postToolUse(root, config, input) {
     if (committed && cScope && on(cScope.config, 'commitVerify')) {
       const g = gitParts(committed);
       const want = authorOf(cScope.config);
-      const r = git(g.cwd, ['log', '-1', '--format=%h%x00%an%x00%ae%x00%cn%x00%ce%x00%B']);
+      const r = onRemote(g.cwd) ? { ok: false } : git(g.cwd, ['log', '-1', '--format=%h%x00%an%x00%ae%x00%cn%x00%ce%x00%P%x00%B']);
       if (r.ok) {
-        const [sha, an, ae, cn, ce, body] = r.out.split('\x00');
-        if (want && (!sameIdent({ name: an, email: ae }, want) || !sameIdent({ name: cn, email: ce }, want))) problems.push(`Commit ${sha} is by ${an} <${ae}>, committed by ${cn} <${ce}>, not ${showIdent(want)}. Fix it before pushing: git config user.name "${want.name}" && git config user.email "${want.email}" && git commit --amend --reset-author --no-edit`);
+        const [sha, an, ae, cn, ce, parents, body] = r.out.split('\x00');
+        const k = { author: { name: an, email: ae }, committer: { name: cn, email: ce }, parents: parents.split(' ').filter(Boolean).length };
+        if (want && !identityOk(k, want, cScope.config)) problems.push(`Commit ${sha} is by ${an} <${ae}>, committed by ${cn} <${ce}>, not ${showIdent(want)}. Fix it before pushing: git config user.name "${want.name}" && git config user.email "${want.email}" && git commit --amend --reset-author --no-edit`);
         const hits = on(cScope.config, 'attribution') ? attributionHits(body, cScope.config) : [];
         if (hits.length) problems.push(`Commit ${sha} carries "${hits[0].trim()}". Reword it before pushing (git commit --amend).`);
       }
