@@ -18,11 +18,15 @@ test('every action is pinned to a commit', () => {
   }
 })
 
-test("the build installs Chromium before it builds, because the build takes the site's pictures", () => {
+test("the build has Chromium before it builds, because the build takes the site's pictures", () => {
   const build = job(ci, 'build')
-  expect(build).toContain('pnpm exec playwright install --with-deps chromium')
-  expect(build.indexOf('playwright install')).toBeGreaterThan(build.indexOf('pnpm install --frozen-lockfile'))
-  expect(build.indexOf('playwright install')).toBeLessThan(build.indexOf('run: pnpm build'))
+  // Installed before the build, or ready-made in Playwright's own image (how is `ci.yml`'s own pull request's call).
+  const image = /\n {4}container:\n {6}image: mcr\.microsoft\.com\/playwright:/.test(build)
+  if (!image) {
+    expect(build).toContain('pnpm exec playwright install --with-deps chromium')
+    expect(build.indexOf('playwright install')).toBeGreaterThan(build.indexOf('pnpm install --frozen-lockfile'))
+    expect(build.indexOf('playwright install')).toBeLessThan(build.indexOf('run: pnpm build'))
+  }
 })
 
 test('nothing may write, and nothing pushes a branch (the pictures are artifacts only)', () => {
