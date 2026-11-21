@@ -175,6 +175,7 @@ jobs:
     needs: [pick, deploy]
     if: needs.pick.outputs.deploy == 'true'
     runs-on: ubuntu-latest
+    # The same pinned Playwright image as `build-real`: Chromium is in it, so nothing comes from the package mirror.
     container:
       image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
       options: --user 1001
