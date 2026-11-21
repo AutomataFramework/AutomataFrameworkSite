@@ -183,10 +183,7 @@ test('a body the hook cannot read before the call is refused, not waved through'
 test('reopening counts against the open limit on every route', () => {
   const table = baseTable(LIMIT)
   assert.match(bash('gh pr reopen 7', { table }).reason, atMost)
-  assert.match(
-    bash('gh api -X PATCH repos/mcthaydt/One/pulls/7 -f state=open', { table }).reason,
-    atMost,
-  )
+  assert.match(bash('gh api -X PATCH repos/mcthaydt/One/pulls/7 -f state=open', { table }).reason, atMost)
   assert.match(
     mcp(
       'mcp__github__update_pull_request',
@@ -387,10 +384,7 @@ test('audit 1: a query string, a variable or a config file cannot hide the route
     bash(`gh api -X PUT 'repos/mcthaydt/One/pulls/230/merge?a=1' -f merge_method=squash`).reason,
     /squash|merge_method/,
   )
-  assert.match(
-    bash(`gh api -X PATCH 'repos/mcthaydt/One/pulls/7?' -f state=open`, { table }).reason,
-    atMost,
-  )
+  assert.match(bash(`gh api -X PATCH 'repos/mcthaydt/One/pulls/7?' -f state=open`, { table }).reason, atMost)
   assert.match(
     bash(`gh api -X POST '/repos//mcthaydt/One/pulls#x' --input ${good}`, { table }).reason,
     atMost,
@@ -430,10 +424,7 @@ test('audit 1: reopening through the issues API counts against the limit', () =>
     ...baseTable(LIMIT),
     'repos/mcthaydt/One/issues/7': { number: 7, state: 'closed', pull_request: {} },
   }
-  assert.match(
-    bash('gh api -X PATCH repos/mcthaydt/One/issues/7 -f state=open', { table }).reason,
-    atMost,
-  )
+  assert.match(bash('gh api -X PATCH repos/mcthaydt/One/issues/7 -f state=open', { table }).reason, atMost)
   assert.match(bash('gh issue reopen 7', { table }).reason, atMost)
   assert.match(
     mcp(
