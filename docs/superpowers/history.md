@@ -83,6 +83,15 @@ None yet.
   Likely the same race as the earlier Firefox font flake (the page moves on while the game's font is still
   downloading), in a journey that fix did not reach; not proven and not fixed. Next step if it shows again: wait for
   the game's fonts in this journey as the fixed one does.
+- `play.journey.ts:58`, "desktop-1440x900: what can go wrong > a slow game says it is loading beside its picture, and
+  then stops saying it", and `motion.journey.ts:199`, "with reduced motion > nothing moves but the wheel's easing"
+  (WebKit, check `journeys / shards (webkit 2/2)`, `ci` run 44923947631 on `main` at `8e0186e`, the merge of #68,
+  2026-11-21): the loading note stayed visible, and `page.goto` timed out after 15 s. Seconds before, the local server
+  (wrangler) logged "ProxyWorker: GET / recovered on attempt 2 after a dropped connection to the UserWorker" and then
+  workerd's "disconnected: write(): Broken pipe". Passed on the one re-run (attempt 2). Not caused by #68's Playwright
+  image: the same server warning shows in two shards of run 44921709194 on `main` at `8d939ad`, before the image. Not
+  proven and not fixed. Next step if it shows again: find why the local workerd drops its connection under the journeys'
+  load (worker count, or a request the journeys abort).
 
 ## Lessons
 
