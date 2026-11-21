@@ -78,6 +78,9 @@ chmodSync(join(bin, 'gh'), 0o755)
 
 const body = (extra = '') =>
   `## Lane\n\nLane 1.\n\n## Acceptance criteria\n\n- it works\n${extra}\nRequested by **T**`
+// The open limit this repo's rules.json sets; the tests follow it.
+const LIMIT = JSON.parse(readFileSync(join(here, 'rules.json'), 'utf8')).prFlow.maxOpenPrs
+const atMost = new RegExp(`${LIMIT} at most`)
 const open = (n) => Array.from({ length: n }, (_, i) => ({ number: 100 + i }))
 const baseTable = (openCount) => ({
   'repos/mcthaydt/One/pulls': open(openCount),
@@ -143,8 +146,8 @@ test('gh api POST .../pulls is judged like gh pr create: lane, draft and the ope
   const good = writeJson('b2.json', { title: 't', head: 'feature', base: 'main', draft: true, body: body() })
   assert.equal(bash(`gh api -X POST repos/mcthaydt/One/pulls --input ${good}`).denied, false)
   assert.match(
-    bash(`gh api -X POST repos/mcthaydt/One/pulls --input ${good}`, { table: baseTable(3) }).reason,
-    /3 at most/,
+    bash(`gh api -X POST repos/mcthaydt/One/pulls --input ${good}`, { table: baseTable(LIMIT) }).reason,
+    atMost,
   )
   const ready = writeJson('b3.json', { title: 't', head: 'feature', base: 'main', body: body() })
   assert.match(bash(`gh api -X POST repos/mcthaydt/One/pulls --input ${ready}`).reason, /opened ready/)
@@ -178,11 +181,11 @@ test('a body the hook cannot read before the call is refused, not waved through'
 })
 
 test('reopening counts against the open limit on every route', () => {
-  const table = baseTable(3)
-  assert.match(bash('gh pr reopen 7', { table }).reason, /3 at most/)
+  const table = baseTable(LIMIT)
+  assert.match(bash('gh pr reopen 7', { table }).reason, atMost)
   assert.match(
     bash('gh api -X PATCH repos/mcthaydt/One/pulls/7 -f state=open', { table }).reason,
-    /3 at most/,
+    atMost,
   )
   assert.match(
     mcp(
@@ -190,7 +193,7 @@ test('reopening counts against the open limit on every route', () => {
       { owner: 'mcthaydt', repo: 'One', pullNumber: 7, state: 'open' },
       { table },
     ).reason,
-    /3 at most/,
+    atMost,
   )
   assert.equal(bash('gh pr reopen 7', { table: baseTable(1) }).denied, false)
 })
@@ -206,7 +209,7 @@ test('the GitHub MCP create tool is held to the same limit', () => {
     body: body(),
   }
   assert.equal(mcp('mcp__github__create_pull_request', input).denied, false)
-  assert.match(mcp('mcp__github__create_pull_request', input, { table: baseTable(3) }).reason, /3 at most/)
+  assert.match(mcp('mcp__github__create_pull_request', input, { table: baseTable(LIMIT) }).reason, atMost)
 })
 
 test('a call that names another repo is judged by that repo, even from a folder that is no repo', () => {
@@ -214,9 +217,9 @@ test('a call that names another repo is judged by that repo, even from a folder 
   const fromTop = bash(`gh api -X POST repos/mcthaydt/Two/pulls --input ${join(repo, good)}`, {
     cwd: top,
     project: top,
-    table: baseTable(3),
+    table: baseTable(LIMIT),
   })
-  assert.match(fromTop.reason, /3 at most/)
+  assert.match(fromTop.reason, atMost)
   const ghR = bash(`gh pr create -R mcthaydt/Two --draft --title t --body-file ${join(repo, 'missing.md')}`, {
     cwd: top,
     project: top,
@@ -325,16 +328,16 @@ test('on GitHub, --github-pr sets the pr-rules status and closes a pull request 
     ...extra,
   })
   const table = {
-    'repos/mcthaydt/One/pulls/104': pr(104),
-    'repos/mcthaydt/One/pulls/104/files': [{ filename: 'src/a.ts' }],
-    'repos/mcthaydt/One/pulls': open(5),
+    'repos/mcthaydt/One/pulls/199': pr(199),
+    'repos/mcthaydt/One/pulls/199/files': [{ filename: 'src/a.ts' }],
+    'repos/mcthaydt/One/pulls': open(LIMIT).concat([{ number: 199 }]),
     'repos/mcthaydt/One/statuses/abc1234def': {},
-    'repos/mcthaydt/One/issues/104/comments': {},
+    'repos/mcthaydt/One/issues/199/comments': {},
     ...Object.fromEntries(
-      [100, 101, 102, 103].map((n) => [`repos/mcthaydt/One/pulls/${n}/files`, [{ filename: 'src/b.ts' }]]),
+      open(LIMIT).map(({ number: n }) => [`repos/mcthaydt/One/pulls/${n}/files`, [{ filename: 'src/b.ts' }]]),
     ),
   }
-  const env = { GITHUB_REPOSITORY: 'mcthaydt/One', PR_NUMBER: '104', PR_ACTION: 'opened' }
+  const env = { GITHUB_REPOSITORY: 'mcthaydt/One', PR_NUMBER: '199', PR_ACTION: 'opened' }
   const tablePath = join(top, 'gh-table.json')
   writeFileSync(tablePath, JSON.stringify(table))
   const log = join(top, 'gh-log.txt')
@@ -357,11 +360,11 @@ test('on GitHub, --github-pr sets the pr-rules status and closes a pull request 
         c.includes('context=pr-rules'),
     ),
   )
-  assert.ok(calls.some((c) => c.includes('repos/mcthaydt/One/pulls/104') && c.includes('state=closed')))
+  assert.ok(calls.some((c) => c.includes('repos/mcthaydt/One/pulls/199') && c.includes('state=closed')))
 
   writeFileSync(
     tablePath,
-    JSON.stringify({ ...table, 'repos/mcthaydt/One/pulls': open(2).concat([{ number: 104 }]) }),
+    JSON.stringify({ ...table, 'repos/mcthaydt/One/pulls': open(LIMIT - 1).concat([{ number: 199 }]) }),
   )
   writeFileSync(log, '')
   const ok = spawnSync('node', [join(repo, '.claude', 'hooks', 'rules.mjs'), '--github-pr'], {
@@ -375,10 +378,10 @@ test('on GitHub, --github-pr sets the pr-rules status and closes a pull request 
 
 test('audit 1: a query string, a variable or a config file cannot hide the route', () => {
   const good = writeJson('b6.json', { title: 't', head: 'feature', base: 'main', draft: true, body: body() })
-  const table = baseTable(3)
+  const table = baseTable(LIMIT)
   assert.match(
     bash(`gh api -X POST 'repos/mcthaydt/One/pulls?x=1' --input ${good}`, { table }).reason,
-    /3 at most/,
+    atMost,
   )
   assert.match(
     bash(`gh api -X PUT 'repos/mcthaydt/One/pulls/230/merge?a=1' -f merge_method=squash`).reason,
@@ -386,11 +389,11 @@ test('audit 1: a query string, a variable or a config file cannot hide the route
   )
   assert.match(
     bash(`gh api -X PATCH 'repos/mcthaydt/One/pulls/7?' -f state=open`, { table }).reason,
-    /3 at most/,
+    atMost,
   )
   assert.match(
     bash(`gh api -X POST '/repos//mcthaydt/One/pulls#x' --input ${good}`, { table }).reason,
-    /3 at most/,
+    atMost,
   )
   assert.match(bash(`P=repos/mcthaydt/One/pulls; gh api -X POST $P --input ${good}`).reason, /cannot read/)
   assert.match(
@@ -424,21 +427,21 @@ test('audit 1: checks, protection, settings and API commits are refused', () => 
 
 test('audit 1: reopening through the issues API counts against the limit', () => {
   const table = {
-    ...baseTable(3),
+    ...baseTable(LIMIT),
     'repos/mcthaydt/One/issues/7': { number: 7, state: 'closed', pull_request: {} },
   }
   assert.match(
     bash('gh api -X PATCH repos/mcthaydt/One/issues/7 -f state=open', { table }).reason,
-    /3 at most/,
+    atMost,
   )
-  assert.match(bash('gh issue reopen 7', { table }).reason, /3 at most/)
+  assert.match(bash('gh issue reopen 7', { table }).reason, atMost)
   assert.match(
     mcp(
       'mcp__github__issue_write',
       { method: 'update', owner: 'mcthaydt', repo: 'One', issue_number: 7, state: 'open' },
       { table },
     ).reason,
-    /3 at most/,
+    atMost,
   )
   assert.equal(
     bash('gh api -X PATCH repos/mcthaydt/One/issues/7 -f state=open', {
