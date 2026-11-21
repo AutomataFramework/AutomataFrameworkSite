@@ -47,6 +47,8 @@ const image = new RegExp(
 test.each([
   ['the build', () => job(ci, 'build')],
   ['the journeys', () => job(journeys, 'shards')],
+  ['the real build', () => job(readWorkflow('site.yml'), 'build-real')],
+  ['the live check', () => job(readWorkflow('site.yml'), 'live')],
 ])(
   '%s, when it runs in a container, runs in the Playwright image pinned by digest and installs no browser',
   (_, read) => {
