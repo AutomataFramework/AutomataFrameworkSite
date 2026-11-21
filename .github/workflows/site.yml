@@ -65,6 +65,11 @@ jobs:
     needs: pick
     if: needs.pick.outputs.build == 'true'
     runs-on: ubuntu-latest
+    # Playwright's own image for the locked version, pinned by digest: the browser and its system libraries are in it, so
+    # nothing is installed from the runner's package mirror, whose slow days hung `install-deps` until the timeout.
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: --user 1001
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -100,10 +105,11 @@ jobs:
       - name: Install the site
         working-directory: site
         run: pnpm install --frozen-lockfile
-      # `pnpm build` opens the built site in Chromium once, for the game's picture, the share picture and the icon.
-      - name: Install the browser the build takes its pictures with
+      # `pnpm build` opens the built site in Chromium once, for the game's picture, the share picture and the icon. The
+      # image has it; this stops the job with a plain message if the lockfile and the image ever differ.
+      - name: Playwright is the lockfile's version
         working-directory: site
-        run: pnpm exec playwright install --with-deps chromium
+        run: test "$(pnpm exec playwright --version)" = "Version 1.63.0"
       - name: Build the site around the game
         working-directory: site
         run: pnpm build
@@ -169,6 +175,10 @@ jobs:
     needs: [pick, deploy]
     if: needs.pick.outputs.deploy == 'true'
     runs-on: ubuntu-latest
+    # The same pinned Playwright image as `build-real`: Chromium is in it, so nothing comes from the package mirror.
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: --user 1001
     env:
       EXPECT_SITE: ${{ github.sha }}
       EXPECT_GAME: ${{ needs.pick.outputs.game }}
@@ -180,7 +190,8 @@ jobs:
           node-version: 24.21.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
+      - name: Playwright is the lockfile's version
+        run: test "$(pnpm exec playwright --version)" = "Version 1.63.0"
       - name: Wait for the live address to serve this build
         # The file comes before `--project`, which would otherwise read it as a second project name.
         run: pnpm test:journeys tests/journeys/live.journey.ts --project chromium
