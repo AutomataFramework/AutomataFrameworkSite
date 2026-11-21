@@ -692,6 +692,9 @@ test('audit 4: any file that starts with #! counts as a file that runs later', (
   const write = (file_path, content) =>
     hook('PreToolUse', { tool_name: 'Write', tool_input: { file_path, content } })
   assert.equal(write(join(repo, 'tools', 'nuke'), `#!/bin/sh\n${del}\n`).denied, true)
-  assert.equal(write(join(repo, 'tools', 'nuke'), `#!/usr/bin/env python3\nimport os\nos.system("${del}")\n`).denied, true)
+  assert.equal(
+    write(join(repo, 'tools', 'nuke'), `#!/usr/bin/env python3\nimport os\nos.system("${del}")\n`).denied,
+    true,
+  )
   assert.equal(write(join(repo, 'tools', 'hello'), '#!/bin/sh\necho hello\n').denied, false)
 })
