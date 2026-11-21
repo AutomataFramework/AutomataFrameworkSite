@@ -52,7 +52,9 @@ test("the build reads the game's own files for the page's facts, from the folder
   expect(step).toContain('GAME_SOURCE: ../game')
 })
 
-test("the real build installs Chromium after the site's install and before its build", () => {
+// In Playwright's image the browser is already there, and ci.test.ts checks the image instead.
+test("the real build, outside the Playwright image, installs Chromium after the site's install and before its build", () => {
+  if (/\n {4}container:/.test(build)) return
   expect(build).toContain('pnpm exec playwright install --with-deps chromium')
   const install = build.indexOf('- name: Install the site')
   const browser = build.indexOf('playwright install')
