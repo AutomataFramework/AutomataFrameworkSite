@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { expect, test } from 'vitest'
 import { expr, head, job, readWorkflow } from './read.ts'
 
@@ -18,11 +19,37 @@ test('every action is pinned to a commit', () => {
   }
 })
 
-test("the build installs Chromium before it builds, because the build takes the site's pictures", () => {
-  const build = job(ci, 'build')
-  expect(build).toContain('pnpm exec playwright install --with-deps chromium')
-  expect(build.indexOf('playwright install')).toBeGreaterThan(build.indexOf('pnpm install --frozen-lockfile'))
-  expect(build.indexOf('playwright install')).toBeLessThan(build.indexOf('run: pnpm build'))
+// The build takes the site's pictures in Chromium, and the journeys play in every engine: both run in Playwright's own
+// image, whose tag is the lockfile's Playwright, pinned by digest, so no browser or system library is installed from
+// the runner's package mirror (whose slow days hung `install-deps` until the job's timeout).
+// The lockfile's Playwright here is `@playwright/test`, whose `playwright` command the version step runs.
+const playwright = (
+  JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as {
+    devDependencies: Record<string, string>
+  }
+).devDependencies['@playwright/test']
+const image = new RegExp(
+  `\\n {4}container:\\n {6}image: mcr\\.microsoft\\.com/playwright:v${playwright?.replaceAll('.', '\\.')}-noble@sha256:[0-9a-f]{64}\\n {6}options: --user 1001\\n`,
+)
+
+test.each([
+  ['the build', () => job(ci, 'build')],
+  ['the journeys', () => job(journeys, 'shards')],
+])(
+  '%s runs in the Playwright image pinned by digest, and says so if the lockfile moves without it',
+  (_, text) => {
+    expect(playwright).toMatch(/^\d+\.\d+\.\d+$/)
+    expect(text()).toMatch(image)
+    expect(text()).toContain(`test "$(pnpm exec playwright --version)" = "Version ${playwright}"`)
+  },
+)
+
+test('neither installs a browser or its system libraries', () => {
+  const commands = [ci, journeys]
+    .join('\n')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('#'))
+  expect(commands.filter((line) => /playwright install|install-deps/.test(line))).toEqual([])
 })
 
 test('nothing may write, and nothing pushes a branch (the pictures are artifacts only)', () => {
