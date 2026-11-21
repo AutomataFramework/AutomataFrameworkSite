@@ -65,6 +65,11 @@ Finished milestones and their decision records, setup, rule changes, standing pe
 
 ## Standing permissions
 
+- 2026-11-21 19:18 UTC, the Owner (in the project chat, in reply to the coordinator): lane 3 changes to the rules,
+  the hooks, CI, `CLAUDE.md` and the shared skills merge without asking the Owner again, once they are green and
+  their required audits (plan audit and implementation audit) pass. The Owner's own requests are their approval.
+  Scope: rule, hook, CI workflow, `CLAUDE.md` and shared-skill changes in this repo. Not covered: releases and tags,
+  credentials, money, real devices, production data, or a change of product direction or scope; those still ask.
 - 2026-11-16, the Owner: the setup check, including first-time setup of these rules and the CI gate (lane 2). Scope:
   this repo's first install of this workflow. Later changes to the rules or CI are lane 3.
 - 2026-11-16, the Owner: a deletion the plan called for that git can restore merges on green, with a before-and-after
