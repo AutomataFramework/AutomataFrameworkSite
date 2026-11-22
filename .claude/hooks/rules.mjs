@@ -312,6 +312,7 @@ function simpleCommands(src, baseCwd, depth = 0) {
       if (c.heredoc === null && words.slice(1).every((x) => x.startsWith('-'))) { unreadable(`${prog} reading its commands from a pipe or a process substitution`); continue; }
     }
     // A shell script file is read too, so a command in it is judged like one typed here.
+    let runs = null;
     if (depth < 4) {
       const isShell = SHELLS.has(prog);
       if ((prog === 'source' || prog === '.') && !words[1]) { unreadable(`${prog} reading a process substitution`); continue; }
@@ -321,12 +322,13 @@ function simpleCommands(src, baseCwd, depth = 0) {
       const file = isShell ? words.slice(1).find((w) => !w.startsWith('-')) : (prog === 'source' || prog === '.') ? words[1] : /\.(sh|bash)$/.test(prog) || shebang ? words[0] : null;
       const text = file ? readText(resolve(cwd, file.replace(/^~(?=\/)/, process.env.HOME ?? '~'))) : null;
       if (file && text === null) { unreadable(`the script ${file} cannot be read before it runs`); continue; }
+      if (text !== null) runs = resolve(cwd, file.replace(/^~(?=\/)/, process.env.HOME ?? '~'));
       if (text !== null) result.push(...simpleCommands(text, cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env }, fromScript: file })));
     }
     if (prog === 'eval' && depth < 4) { result.push(...simpleCommands(words.slice(1).join(' '), cwd, depth + 1)); continue; }
     if (prog === 'cd' && !c.nested) { const to = words[1]; if (to && !to.startsWith('-')) cwd = isAbsolute(to) ? to : resolve(cwd, to.replace(/^~(?=\/|$)/, process.env.HOME ?? '~')); continue; }
     if (prog === 'export' && !c.nested) { for (const w of words.slice(1)) if (ENV_WORD.test(w)) { const [k, ...v] = w.split('='); exported[k] = v.join('='); } continue; }
-    result.push({ prog, path: words[0], args: words.slice(1), env, cwd, heredoc: c.heredoc, heredocQuoted: c.heredocQuoted === true, redirects: c.redirects ?? [], ...(xargs ? { xargs } : {}) });
+    result.push({ prog, path: words[0], args: words.slice(1), env, cwd, heredoc: c.heredoc, heredocQuoted: c.heredocQuoted === true, redirects: c.redirects ?? [], ...(xargs ? { xargs } : {}), ...(runs ? { runs } : {}) });
   }
   return result;
 }
@@ -601,8 +603,10 @@ function checkDefaultBranchPush(cmd, config, deny) {
   const refspecs = pushWords(g.rest).slice(1);
   let targets;
   if (pushEverything(g.rest)) targets = localBranches(g.cwd);
-  else if (refspecs.length) targets = refspecs.map((r) => { const x = r.replace(/^\+/, ''); return x.includes(':') ? x.split(':')[1] : x; });
+  else if (refspecs.length) targets = refspecs.map((r) => { const x = r.replace(/^\+/, ''); return x.includes(':') ? x.split(':')[1] : /@\{(u|upstream|push)\}/.test(x) ? upstreamBranch(g.cwd, x) : x; });
   else { const up = git(g.cwd, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']); targets = [up.ok ? up.out.split('/').slice(1).join('/') : currentBranch(g.cwd)]; }
+  const unread = refspecs.find((r, k) => targets[k] === null);
+  if (unread) { deny(refusal(ROUTE_RULE, `git push ${unread}: where it goes could not be read`, 'name the branch it pushes to, as in git push origin HEAD:<branch>')); return; }
   targets = targets.map((t) => (t === 'HEAD' ? currentBranch(g.cwd) : t).replace(/^refs\/heads\//, ''));
   if (!targets.includes(def)) return;
   // The first push to an empty remote creates the default branch; there is no base for a pull request yet.
@@ -615,6 +619,13 @@ function checkDefaultBranchPush(cmd, config, deny) {
 // git push deletes with --delete or any unique prefix of it (--de, --del, ...), or a short flag bundle
 // holding d (-d, -vd), wherever it stands among the arguments.
 const pushDeletes = (rest) => rest.some((w) => /^--de(l(e(t(e)?)?)?)?$/.test(w) || /^-[a-zA-Z0-9]*d[a-zA-Z0-9]*$/.test(w));
+// A word the shell builds: a variable, a substitution, ANSI-C $'…' quoting or brace expansion.
+const builtWord = (w) => /[$`{]/.test(w);
+// @{u}, @{upstream} and @{push} on a push source name the branch's upstream, and no shell expands them.
+const UPSTREAM_MARK = /@\{(u|upstream|push)\}/g;
+const pushBuilt = (w) => { const k = w.includes(':') ? w.indexOf(':') : w.length; return builtWord(w.slice(0, k).replace(UPSTREAM_MARK, '') + w.slice(k)); };
+// The branch an upstream mark points at (origin/main -> main), or null when git cannot say.
+const upstreamBranch = (cwd, src) => { const r = git(cwd, ['rev-parse', '--symbolic-full-name', src]); return r.ok && /^refs\/(remotes\/[^/]+|heads)\/./.test(r.out) ? r.out.replace(/^refs\/(remotes\/[^/]+|heads)\//, '') : null; };
 // A push that deletes branches (pushDeletes, or :<branch> and +:<branch> refspecs) is judged branch by
 // branch like the API delete (branchDeleteRefusal); a tag or other ref is the owner's, and --prune,
 // which deletes branches no one names, is refused outright.
@@ -624,7 +635,8 @@ function checkPushDelete(cmd, config, deny) {
   if (g.sub !== 'push') return;
   // A flag or branch name the shell builds ($D, $(...), $'\x2d', {-d,main}) or xargs adds could be a
   // delete the hook never sees. A dry run is judged as a real push: --no-dry-run after it wins.
-  const built = cmd.xargs ? 'words xargs adds from its input' : g.rest.find((w) => /[$`{]/.test(w));
+  // A delete's words are all destinations, so @{u} counts as built there (plan audit 1, N2).
+  const built = cmd.xargs ? 'words xargs adds from its input' : g.rest.find(pushDeletes(g.rest) ? builtWord : pushBuilt);
   if (built) { deny(refusal(ROUTE_RULE, `a git push whose words the shell builds (${cmd.xargs ? built : `"${built}"`}), so what it deletes cannot be read before the call`, 'write the git push out in full, with its flags and branch names')); return; }
   const rule = 'Deleting a merged branch is lane 1; deleting the default branch, or commits no merged pull request holds, is not (CLAUDE.md, Risk).';
   const prune = g.rest.find((w) => /^--pr(u(n(e)?)?)?$/.test(w));
@@ -1242,6 +1254,13 @@ function checkPrFlowBash(cmd, config, deny) {
   if (cmd.prog !== 'gh') return;
   const p = ghParts(cmd);
   const repo = repoSlug(config, cmd.cwd, p.repo);
+  // As for git push: a subcommand, flag or number the shell builds or xargs adds could be a merge or a
+  // branch delete the checks below never see. Titles and bodies of create and edit are text, left as they are.
+  if (p.sub === 'pr') {
+    const writes = p.sub2 === undefined || ['close', 'merge', 'ready', 'reopen'].includes(p.sub2);
+    const built = builtWord(p.sub2 ?? '') ? p.sub2 : cmd.xargs && writes ? 'words xargs adds from its input' : writes ? p.rest.slice(1).find(builtWord) : undefined;
+    if (built) { deny(refusal(ROUTE_RULE, `a gh pr ${builtWord(p.sub2 ?? '') ? '' : `${p.sub2 ?? ''} `}call whose words the shell builds (${cmd.xargs && !builtWord(p.sub2 ?? '') ? built : `"${built}"`}), so what it does cannot be read before the call`, 'write the gh pr command out in full, with its flags and number')); return; }
+  }
   if (p.sub === 'pr' && p.sub2 === 'create') { const a = p.rest.slice(1); const b = ghBody(cmd, a); checkPrCreate(config, cmd.cwd, repo, b.text, hasFlag(a, ['--draft', '-d']), deny, flagValues(a, ['--head', '-H'])[0] ?? null, b.known); return; }
   if (p.sub === 'issue' && p.sub2 === 'reopen') {
     const a = p.rest.slice(1);
@@ -1316,6 +1335,19 @@ const WRITE_WORDS = /\b(POST|PATCH|PUT|DELETE)\b|octokit|\bmutation\b|\.(post|pa
 const GH_IN_SCRIPT_MORE = /['"]gh['"]\s*,\s*['"](api|pr|release|workflow|repo|ruleset|secret|variable)['"]|\bgh\s+(release\s+(create|edit|delete|upload)|workflow\s+run|repo\s+(edit|delete|rename|archive)|ruleset\s+(create|edit|delete)|secret\s+set)\b|\bgh\s+api\b[^\n]*\bDELETE\b/;
 const GH_IN_SCRIPT = /\bgh\s+pr\s+(create|merge|ready|reopen|edit)\b|\bgh\s+api\b[^\n]*(\s-X\s*(POST|PATCH|PUT|DELETE)|--method|\s-[fF]\s|--field|--raw-field|--input)|['"]gh['"]\s*,\s*\[\s*['"](pr['"]\s*,\s*['"](create|merge|ready|reopen|edit)|api['"][^\]]*['"](-X|--method|-f|-F|--field|--raw-field|--input)['"])/;
 const ROUTE_RULE = 'Pull requests and pushes go only through routes the rule hooks read: gh pr, gh api REST paths, git push and the GitHub MCP tools (Owner: every session follows the hooks).';
+const runsScript = (cmd) => scriptTool(cmd.prog) || /\.(m?[jt]s|py|rb|pl|sh|bash)$/.test(cmd.prog);
+// What a script tool runs: inline code (evalText), a script file, or neither (stdin or a heredoc).
+function interpreterScript(cmd) {
+  const a = cmd.args;
+  // An eval flag counts only among the flags before the script (node x.mjs -p is the script's own flag).
+  const lead = a.findIndex((w) => !w.startsWith('-'));
+  const evalFlag = a.findIndex((w, k) => (lead === -1 || k < lead) && (['--eval', '--print'].includes(w) || /^-[a-zA-Z]*[ecpE]$/.test(w)));
+  if (evalFlag !== -1) return { evalText: a[evalFlag + 1] ?? '', file: null };
+  let i = 0;
+  while (i < a.length && a[i].startsWith('-')) { if (['-r', '--require', '--import', '--loader', '--env-file', '-m'].includes(a[i])) i++; i++; }
+  if (cmd.prog === 'deno' && ['run', 'eval'].includes(a[i])) i++;
+  return { evalText: null, file: /\.(m?[jt]s|py|rb|pl|sh|bash)$/.test(cmd.prog) ? cmd.path : (a[i] ?? null) };
+}
 function checkOtherRoutes(cmd, config, deny, ctx) {
   if (config.routes?.enabled === false) return;
   if (cmd.prog === '#unreadable') { deny(refusal(ROUTE_RULE, `${cmd.why}, which the hook cannot read before it runs`, 'write the command out in full, or put it in a script file first and run that file in a later call')); return; }
@@ -1329,21 +1361,13 @@ function checkOtherRoutes(cmd, config, deny, ctx) {
     if (writes) deny(refusal(ROUTE_RULE, `${cmd.prog} writes to ${hit}`, 'use gh api with the REST path (the hooks judge it), or the GitHub MCP tool'));
     return;
   }
-  if (scriptTool(cmd.prog) || /\.(m?[jt]s|py|rb|pl|sh|bash)$/.test(cmd.prog)) {
+  if (runsScript(cmd)) {
     const a = cmd.args;
-    let text = '', file = null;
-    // An eval flag counts only among the flags before the script (node x.mjs -p is the script's own flag).
-    const lead = a.findIndex((w) => !w.startsWith('-'));
-    const evalFlag = a.findIndex((w, k) => (lead === -1 || k < lead) && (['--eval', '--print'].includes(w) || /^-[a-zA-Z]*[ecpE]$/.test(w)));
-    if (evalFlag !== -1) text = a[evalFlag + 1] ?? '';
-    else {
-      let i = 0;
-      while (i < a.length && a[i].startsWith('-')) { if (['-r', '--require', '--import', '--loader', '--env-file', '-m'].includes(a[i])) i++; i++; }
-      if (cmd.prog === 'deno' && ['run', 'eval'].includes(a[i])) i++;
-      file = /\.(m?[jt]s|py|rb|pl|sh|bash)$/.test(cmd.prog) ? cmd.path : a[i];
-      if (file && file !== '-') text = scriptText(resolve(cmd.cwd, file), config, ctx.root ?? cmd.cwd);
-      else if (cmd.heredoc !== null) text = cmd.heredoc;
-    }
+    let text = '';
+    const { evalText, file } = interpreterScript(cmd);
+    if (evalText !== null) text = evalText;
+    else if (file && file !== '-') text = scriptText(resolve(cmd.cwd, file), config, ctx.root ?? cmd.cwd);
+    else if (cmd.heredoc !== null) text = cmd.heredoc;
     if (file && /(^|\/)\.claude\/hooks\/rules(\.test)?\.mjs$/.test(resolve(cmd.cwd, file))) return; // the hook and its own test, run by hand
     if (cmd.prog === 'node' && hasFlag(a, ['--check', '-c'])) return; // a syntax check runs nothing
     if (text && (ghWriteText(text) || GH_ISSUE_WRITE.test(text) || GIT_PUSH_RISKY.test(text) || GIT_PUSH_LIST.test(text))) { deny(refusal(ROUTE_RULE, `${cmd.prog} runs a script that calls gh or git to write (a command quoted in a string counts, since the script could run it)`, 'run the gh command in Bash, where the hooks read it; to save a note that quotes one, use the Write or Edit tool')); return; }
@@ -1354,6 +1378,8 @@ function checkOtherRoutes(cmd, config, deny, ctx) {
     const p = ghParts(cmd);
     if (p.sub === 'alias' && !['list', 'ls'].includes(p.sub2)) deny(refusal(ROUTE_RULE, `gh alias ${p.sub2 ?? ''}`.trim(), 'run the gh command itself'));
     else if ((p.sub === 'extension' || p.sub === 'extensions' || p.sub === 'ext') && !['list', 'ls', 'search', 'browse'].includes(p.sub2)) deny(refusal(ROUTE_RULE, `gh ${p.sub} ${p.sub2 ?? ''}`.trim(), 'use gh pr or gh api'));
+    // A subcommand the shell builds ($'merge', {reopen,}) matches none of the checks that judge it.
+    else if (p.sub !== 'api' && builtWord(p.sub2 ?? '')) deny(refusal(ROUTE_RULE, `a gh ${p.sub} call whose subcommand the shell builds ("${p.sub2}"), so what it does cannot be read before the call`, `write the gh ${p.sub} command out in full`));
     else if (p.sub && !GH_KNOWN.has(p.sub)) deny(refusal(ROUTE_RULE, `gh ${p.sub} (an alias or extension the hooks cannot read)`, 'run the gh command it stands for'));
     else if (GH_OWNER_ONLY[p.sub]?.includes(p.sub2)) deny(refusal(ROUTE_RULE, `gh ${p.sub} ${p.sub2} changes what only the owner changes`, 'list it as a command for the owner'));
     else if (p.sub === 'pr' && p.sub2 === 'update-branch') deny(refusal(ROUTE_RULE, 'gh pr update-branch writes a merge commit through the API, not by the CLAUDE.md author', 'git fetch origin main && git merge --no-edit FETCH_HEAD, then push'));
@@ -1451,16 +1477,56 @@ function checkGitRuns(cmd, config, deny) {
   }
 }
 // make and its kin run the recipes in a file: read that file like a script.
-function checkMakefile(cmd, config, deny) {
-  if (config.routes?.enabled === false || !['make', 'gmake', 'just', 'task', 'rake'].includes(cmd.prog)) return;
+const MAKE_PROGS = new Set(['make', 'gmake', 'just', 'task', 'rake']);
+const MAKE_DEFAULTS = ['GNUmakefile', 'makefile', 'Makefile', 'justfile', 'Justfile', '.justfile', 'Taskfile.yml', 'Rakefile'];
+// The folder make runs in and the files it was named with -f (none: it looks for MAKE_DEFAULTS there).
+function makeFiles(cmd) {
   const a = cmd.args;
   let dir = cmd.cwd; const files = [];
   for (let i = 0; i < a.length; i++) { if (a[i] === '-C' || a[i] === '--directory') dir = resolve(dir, a[++i] ?? '.'); else if (a[i] === '-f' || a[i] === '--file' || a[i] === '--justfile' || a[i] === '--taskfile') files.push(a[++i] ?? ''); else if (/^(-f|--file=)/.test(a[i])) files.push(a[i].replace(/^(-f|--file=)/, '')); }
-  if (!files.length) files.push(...['GNUmakefile', 'makefile', 'Makefile', 'justfile', 'Justfile', '.justfile', 'Taskfile.yml', 'Rakefile'].filter((f) => existsSync(join(dir, f))));
+  return { dir, files };
+}
+function checkMakefile(cmd, config, deny) {
+  if (config.routes?.enabled === false || !MAKE_PROGS.has(cmd.prog)) return;
+  const { dir, files } = makeFiles(cmd);
+  if (!files.length) files.push(...MAKE_DEFAULTS.filter((f) => existsSync(join(dir, f))));
   for (const f of files) {
     const t = readText(resolve(dir, f));
     if (t === null) { deny(refusal(ROUTE_RULE, `${cmd.prog} runs ${f}, which cannot be read before it runs`, 'write the file first, then run it in a later call')); return; }
     if (dangerText(t) || HOOKS_OFF.test(t)) { deny(refusal(ROUTE_RULE, `${cmd.prog} runs ${f}, whose recipes write to GitHub`, 'run the gh command in Bash, where the hooks read it')); return; }
+  }
+}
+// A script file is read from disk before the call, so a call that also writes it would run text the hook
+// never read. Writing and running one script in the same call is refused, whichever comes first.
+const WRITES_NOTHING = new Set(['cat', 'head', 'tail', 'less', 'grep', 'rg', 'wc', 'ls', 'stat', 'file', 'diff', 'cmp', 'sha256sum', 'md5sum', 'realpath', 'readlink', 'test', '[', 'echo', 'printf', 'chmod', 'touch', 'mkdir', 'true']);
+// git verbs that leave the working files as they are (plan audit 1, N5).
+const GIT_READS = new Set(['diff', 'log', 'show', 'status', 'ls-files', 'add', 'blame', 'grep']);
+const COPIES_INTO = new Set(['cp', 'mv', 'install', 'rsync', 'ln', 'tar', 'unzip']);
+const scriptsRun = (c) => [
+  ...(c.runs ? [c.runs] : []),
+  ...(runsScript(c) ? [interpreterScript(c).file].filter((f) => f && f !== '-').map((f) => realPath(c.cwd, f)) : []),
+  ...(MAKE_PROGS.has(c.prog) ? (({ dir, files }) => (files.length ? files : MAKE_DEFAULTS).map((f) => resolve(dir, f)))(makeFiles(c)) : []),
+];
+function checkWrittenScripts(cmds, config, deny) {
+  if (config.routes?.enabled === false) return;
+  const runs = cmds.flatMap((c) => scriptsRun(c).map((f) => ({ c, f })));
+  if (!runs.length) return;
+  const split = 'write the script in one call (or with the Write tool) and run it in the next, so the hook reads what runs';
+  for (const c of cmds) {
+    const targets = (c.redirects ?? []).filter((r) => r && !/^(\d+|-|\/dev\/\S+)$/.test(r));
+    const words = WRITES_NOTHING.has(c.prog) ? [] : (c.prog === 'git' && GIT_READS.has(gitParts(c).sub)) ? c.args.filter((w) => w.startsWith('--output')) : c.args;
+    // A path the shell fills in starts with $ or a backtick ("$F", $(mktemp)); program text such as
+    // awk '{print $1}' or sed 's/a/$b/' only holds one, and the parser does not keep which words were quoted.
+    const unplaced = targets.find((r) => SUBST.test(r)) ?? (c.xargs && !WRITES_NOTHING.has(c.prog) ? 'words xargs adds' : words.find((w) => /^(\$|`)/.test(w) && SUBST.test(w)));
+    if (unplaced !== undefined) { deny(refusal(ROUTE_RULE, `a script run in the same command as a write to "${unplaced}", which the shell fills in, so the script may be written and run in the same command`, split)); return; }
+    for (const { c: runner, f } of runs) {
+      const name = f.split('/').at(-1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const named = (w) => { const v = w.startsWith('-') && w.includes('=') ? w.slice(w.indexOf('=') + 1) : w; return realPath(c.cwd, v) === f || new RegExp(`(^|[^\\w.-])${name}($|[^\\w.-])`).test(w); };
+      const hit = targets.find((t) => realPath(c.cwd, t) === f)
+        ?? (runner === c ? undefined : words.find(named))
+        ?? (COPIES_INTO.has(c.prog) ? c.args.find((w) => !w.startsWith('-') && f.startsWith(realPath(c.cwd, w).replace(/\/$/, '') + '/')) : undefined);
+      if (hit !== undefined) { deny(refusal(ROUTE_RULE, `${relative(c.cwd, f) || f} is written and run in the same command (${c.prog} ${hit}), so the hook would judge the old file, not what runs`, split)); return; }
+    }
   }
 }
 // Write, Edit and MultiEdit: no file that runs later may carry a gh write, and nothing may switch the hooks off.
@@ -1817,6 +1883,7 @@ function preToolUse(root, config, input, ctx) {
   if (name === 'Bash') {
     const cmds = simpleCommands(String(ti.command ?? ''), input.cwd ?? root);
     checkBashText(String(ti.command ?? ''), cmds, base, deny);
+    if (!reasons.length) checkWrittenScripts(cmds, base, deny);
     for (const cmd of reasons.length ? [] : cmds) {
       checkOtherRoutes(cmd, base, deny, { ...ctx, root });
       if (!reasons.length) checkGitRuns(cmd, base, deny);
