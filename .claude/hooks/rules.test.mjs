@@ -817,3 +817,121 @@ test("a pull request's words cannot be changed through the issues API either", (
   // Labels and other issue fields stay allowed on a pull request.
   assert.equal(bash('gh issue edit 7 --add-label bug', { table }).denied, false)
 })
+
+test('turning a pull request back to draft is allowed on both routes; body edits through the API are not', () => {
+  const table = {
+    ...baseTable(0),
+    'repos/mcthaydt/One/pulls/7': { number: 7, state: 'open', head: { ref: 'feature', sha: 'abc1234' } },
+  }
+  const toDraft = bash('gh api -X POST repos/mcthaydt/One/pulls/7/ccr/convert_to_draft', { table })
+  assert.equal(toDraft.denied, false, toDraft.reason)
+  const mcpDraft = mcp(
+    'mcp__github__update_pull_request',
+    { owner: 'mcthaydt', repo: 'One', pullNumber: 7, draft: true },
+    { table },
+  )
+  assert.equal(mcpDraft.denied, false, mcpDraft.reason)
+  for (const c of [
+    'gh api -X PATCH repos/mcthaydt/One/pulls/7 -f body=Hi',
+    'gh api -X POST repos/mcthaydt/One/pulls/7 -f title=New',
+  ])
+    assert.equal(bash(c, { table }).denied, true, c)
+})
+
+test('a merged branch may be deleted through the API; the default branch and unmerged branches may not', () => {
+  const pr = (number, ref, state, merged, sha) => ({
+    number,
+    state,
+    merged_at: merged ? '2026-11-21T00:00:00Z' : null,
+    head: { ref, sha },
+  })
+  const R = 'repos/mcthaydt/One'
+  const ref = (b, sha) => ({ [`${R}/git/ref/heads/${b}`]: { object: { sha } } })
+  const table = {
+    ...baseTable(0),
+    [R]: { private: false, default_branch: 'main' },
+    [`${R}/pulls`]: [
+      pr(1, 'claude/done', 'closed', true, 'd1'),
+      pr(2, 'claude/dropped', 'closed', false, 'x2'),
+      pr(3, 'claude/again', 'closed', true, 'a3'),
+      pr(4, 'claude/again', 'open', false, 'a4'),
+      pr(5, 'claude/reused', 'closed', true, 'r5'),
+      pr(6, 'claude/inmain', 'closed', true, 'm6'),
+    ],
+    ...ref('claude/done', 'd1'),
+    ...ref('claude/dropped', 'x2'),
+    ...ref('claude/reused', 'r9'),
+    ...ref('claude/inmain', 'm9'),
+    [`${R}/compare/main...r9`]: { status: 'ahead' },
+    [`${R}/compare/main...m9`]: { status: 'behind' },
+  }
+  const del = (b, t = table) => bash(`gh api -X DELETE ${R}/git/refs/heads/${b}`, { table: t })
+  assert.equal(del('claude/done').denied, false, del('claude/done').reason)
+  // Its newest commit moved on after the merge, but main already holds it.
+  assert.equal(del('claude/inmain').denied, false, del('claude/inmain').reason)
+  assert.match(del('main').reason, /default branch/)
+  assert.match(del('claude/dropped').reason, /not merged/)
+  assert.match(del('claude/never').reason, /not merged/)
+  assert.match(del('claude/again').reason, /open pull request #4/)
+  // Merged once, then reused with new work that no merged pull request holds.
+  assert.match(del('claude/reused').reason, /commits no merged pull request holds/)
+  for (const b of ['claude/done', 'main', 'claude/dropped', 'claude/reused'])
+    assert.doesNotMatch(del(b).reason, /writes a commit/, b)
+  // Anything it cannot read refuses.
+  for (const key of [R, `${R}/pulls`, `${R}/git/ref/heads/claude/reused`, `${R}/compare/main...r9`])
+    assert.match(del('claude/reused', { ...table, [key]: 'fail' }).reason, /could not be read/, key)
+  const many = Array.from({ length: 100 }, (_, i) => pr(200 + i, 'claude/done', 'closed', true, 'd1'))
+  assert.match(del('claude/done', { ...table, [`${R}/pulls`]: many }).reason, /100 or more/)
+  // Moving a branch or deleting a tag through the API stays refused.
+  assert.equal(
+    bash('gh api -X PATCH repos/mcthaydt/One/git/refs/heads/claude/done -f sha=abc', { table }).denied,
+    true,
+  )
+  assert.equal(bash('gh api -X DELETE repos/mcthaydt/One/git/refs/tags/v1.0.0', { table }).denied, true)
+})
+
+test('a script is judged by its own text: read-only gh calls beside it pass, a quoted gh write in it is named', () => {
+  const reads = `python3 - <<'EOF'\nopen('notes.md', 'a').write('a line\\n')\nEOF\nfor s in abc def; do gh api -X GET repos/mcthaydt/One/commits/$s/check-runs --jq '.check_runs[].conclusion'; done`
+  assert.equal(bash(reads).denied, false, bash(reads).reason)
+  // A string the script holds could be handed to a shell, so it still counts; the reason says so.
+  const quoted = `python3 - <<'EOF'\nopen('notes.md', 'a').write('use gh api -X POST repos/o/r/pulls/1/ccr/ready_for_review alone\\n')\nEOF`
+  assert.match(bash(quoted).reason, /quoted in a string counts/)
+  assert.doesNotMatch(bash(quoted).reason, /change a pull request/)
+  assert.match(bash(quoted).reason, /Write or Edit tool/)
+})
+
+test('a data block in a message that quotes a gh api write is not a command for the owner', () => {
+  // A settings block quoting the command in a JSON string (what a thread posted when it was refused).
+  const settings = (lang) =>
+    `Add this:\n\`\`\`${lang}\n{\n  "allow": [\n    "Mark ready with gh api -X POST repos/mcthaydt/One/pulls/7/ccr/ready_for_review alone",\n    "git push origin HEAD:x"\n  ]\n}\n\`\`\``
+  for (const [name, field] of [
+    ['mcp__hearthbot__post_message', 'text'],
+    ['mcp__hearthbot__message_coordinator', 'text'],
+    ['mcp__hearthbot__message_thread', 'text'],
+    ['mcp__claude-code-remote__send_message', 'message'],
+  ])
+    for (const lang of ['json', 'JSON', 'jsonc', 'json5', 'yaml', 'yml', 'toml']) {
+      const r = mcp(name, { [field]: settings(lang) })
+      assert.equal(r.denied, false, `${name} ${lang}: ${r.reason}`)
+    }
+  const post = (text) => mcp('mcp__hearthbot__post_message', { text })
+  // Every other fence is judged as before, and a fence after a data block is judged again.
+  for (const fence of ['```', '```sh', '```bash', '```text', '```powershell', '```md', '~~~'])
+    assert.match(
+      post(`Run:\n${fence}\ngh api -X PATCH repos/mcthaydt/One/pulls/1 -f body=x\n${fence.slice(0, 3)}`)
+        .reason,
+      /GH_PAGER=cat/,
+      fence,
+    )
+  assert.match(
+    post(`${settings('json')}\nThen:\n\`\`\`\ngh api repos/mcthaydt/One\n\`\`\``).reason,
+    /GH_PAGER=cat/,
+  )
+  assert.match(post('Run:\n```\n$ git push origin feature\n```').reason, /never plain git/)
+  assert.equal(post('Run:\n```bash\nGH_PAGER=cat gh api repos/mcthaydt/One\n```').denied, false)
+  // A data-labelled fence is not judged whatever it holds, to its end or, unclosed, to the message's end.
+  assert.equal(post('```json bash\ngh api repos/mcthaydt/One\n```').denied, false)
+  assert.equal(post('```yaml\nrun: |\n  gh api repos/mcthaydt/One\n```').denied, false)
+  assert.equal(post('```json\n{"a": 1}\ngh api repos/mcthaydt/One\ngit push origin x').denied, false)
+  assert.equal(post('The hook refused `gh api -X PATCH repos/mcthaydt/One/pulls/1` in prose.').denied, false)
+})
