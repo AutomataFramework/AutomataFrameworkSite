@@ -33,6 +33,7 @@ It is the first step of every slice's end, before the design review loop, the sc
 
 - A fresh session runs it, never one that built the slice: builders know the way and skip the steps a stranger trips on.
 - It walks every journey the slice added or changed, from the first screen to the last, the way a real person would: real taps, clicks, keys and typing in the running app or game, in a cloud container or on the preview, at the sizes the slice affects (see "Shoot what the change touches" in `visual-check`). Passing tests are not a walk.
+- On every screen of an app it walks, it also holds words and panels, swipes to the ends of the page and of each panel, and taps twice quickly; any selection, page scroll or bounce (other than the browser showing a focused field above the keyboard), grey tap box, browser menu, zoom or dragged picture is a FAIL.
 - It writes `docs/superpowers/audits/<date>-<slice>-e2e-walk.md`, naming the commit or deploy it walked, with one line per step: the journey, the step, PASS or FAIL, and the evidence (a screenshot, or what it saw).
 - Each FAIL is a red finding in the format below. The implementer fixes it in the fix round and names in the pull request every journey the fix touches. The walk runs again on the failed journeys and on those, and again on any journey a later slice-end fix touches, until every step passes on the commit the owner will walk.
 - It uses test accounts, test payments and test phone numbers. A step that would spend real money, send a real message or write real data waits for its standing permission.

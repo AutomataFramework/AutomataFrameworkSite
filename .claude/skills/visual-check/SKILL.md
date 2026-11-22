@@ -38,7 +38,7 @@ When a review covers many screens or scene captures, start it in batches within 
 
 Steps 1 to 3 judge the screens against the brief's acceptance criteria. A gap against one is a defect; an idea that would make it better is a note. Step 4 is the one exception: the gap it names is fixed even when no criterion names it.
 
-1. **Words-and-design check:** one check, at the sizes the change affects. Could a drunk grandma understand every word? In practice: every label and message is plain words with no jargon, each screen has one main action that is visible without scrolling, and buttons are big enough to hit with a thumb. Then layout and polish.
+1. **Words-and-design check:** one check, at the sizes the change affects. Could a drunk grandma understand every word? In practice: every label and message is plain words with no jargon, each screen has one main action that is visible without scrolling, and buttons are big enough to hit with a thumb. Then layout and polish. Then app feel, in a repo with app screens: the repo's app-feel check passes on every screen shot, and the reviewer, on touch emulation, holds words and panels, swipes the bar and the panels to their ends and taps twice quickly, and sees nothing of the web page.
 2. **End-to-end walk:** the slice-end walk (see `review`), run once and read here, never walked again. A drunk grandma must always see the next step and a way back: no screen is a dead end, and every error says what to do next.
 3. **Last look:** in each round after the first, by a fresh session, on the screens and sizes the fixes touched, after the fixes have landed. A defect it finds returns to bounded fixing within the tries in Settings, and the look runs again on those screens only.
 
