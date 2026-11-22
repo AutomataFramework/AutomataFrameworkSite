@@ -89,7 +89,11 @@ const baseTable = (openCount) => ({
   'repos/mcthaydt/One/pulls/7': { number: 7, state: 'closed', head: { ref: 'feature', sha: 'abc1234' } },
 })
 
-function hook(event, input, { cwd = repo, project = repo, table = baseTable(0), env = {} } = {}) {
+function hook(
+  event,
+  input,
+  { cwd = repo, project = repo, table = baseTable(0), env = {}, own = false } = {},
+) {
   const tablePath = join(top, `table-${Math.random()}.json`)
   writeFileSync(tablePath, JSON.stringify(table))
   const log = join(top, `log-${Math.random()}.txt`)
@@ -98,7 +102,12 @@ function hook(event, input, { cwd = repo, project = repo, table = baseTable(0), 
     project === repo
       ? join(repo, '.claude', 'hooks', 'rules.mjs')
       : join(repo, '.claude', 'hooks', 'rules.mjs')
-  const args = project === repo ? [script] : [script, '--find-repo']
+  // own: the project's own copy runs, as its settings would run it.
+  const args = own
+    ? [join(project, '.claude', 'hooks', 'rules.mjs')]
+    : project === repo
+      ? [script]
+      : [script, '--find-repo']
   const r = spawnSync('node', args, {
     input: JSON.stringify({ hook_event_name: event, session_id: 't', cwd, ...input }),
     encoding: 'utf8',
@@ -691,4 +700,78 @@ test('audit 4: any file that starts with #! counts as a file that runs later', (
     true,
   )
   assert.equal(write(join(repo, 'tools', 'hello'), '#!/bin/sh\necho hello\n').denied, false)
+})
+
+// A repo whose main holds a merge made on GitHub: committed by GitHub, authored by the owner under
+// another email (Site main's 1de7e03). Pushes are judged without a fetch, so the test needs no network.
+const merged = join(top, 'merged')
+mkdirSync(merged)
+makeRepo(merged, 'mcthaydt/Merged')
+{
+  const file = join(merged, '.claude', 'hooks', 'rules.json')
+  writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), fetchBeforePush: false }))
+}
+const asGitHub = (author = 'T', email = 't@example.com') =>
+  `GIT_AUTHOR_NAME=${author} GIT_AUTHOR_EMAIL=${email} GIT_COMMITTER_NAME=GitHub GIT_COMMITTER_EMAIL=noreply@github.com`
+sh(
+  [
+    'git checkout -qb side main',
+    'echo y > side.txt',
+    'git add -A',
+    'git commit -qm side',
+    'git checkout -q main',
+    `${asGitHub('T', 'owner@elsewhere.example')} git merge -q --no-ff side -m "Merge pull request #1"`,
+    'git update-ref refs/remotes/origin/main HEAD',
+  ].join(' && '),
+  merged,
+)
+const inMerged = { cwd: merged, project: merged, own: true }
+const verify = (command) =>
+  hook('PostToolUse', { tool_name: 'Bash', tool_input: { command }, tool_response: '' }, inMerged).out
+
+test("GitHub's merge commit on main, brought in by a pull, is not judged as a new commit", () => {
+  sh('git checkout -q -B feature origin/main', merged)
+  assert.equal(
+    verify('git pull origin main')?.decision,
+    undefined,
+    JSON.stringify(verify('git pull origin main')),
+  )
+  assert.equal(verify('git merge origin/main')?.decision, undefined)
+  assert.equal(bash('git push -u origin feature', inMerged).denied, false)
+  // A commit made here is still judged.
+  sh(`${asGitHub()} git commit -q --allow-empty -m mine`, merged)
+  assert.equal(verify('git commit -m mine')?.decision, 'block')
+})
+
+test('only a GitHub-committed merge by the owner passes the push check; other GitHub commits fail', () => {
+  const push = () => bash('git push -u origin feature', inMerged)
+  const reset = () =>
+    sh(
+      'git checkout -q -B feature origin/main && git checkout -q -B side2 origin/main && echo z > z.txt && git add -A && git commit -qm z && git checkout -q feature',
+      merged,
+    )
+  reset()
+  sh(`${asGitHub()} git merge -q --no-ff side2 -m "Merge branch side2"`, merged)
+  assert.equal(push().denied, false, push().reason)
+  reset()
+  sh(`${asGitHub('T', 'owner@elsewhere.example')} git merge -q --no-ff side2 -m "Merge branch side2"`, merged)
+  assert.match(push().reason, /committed by GitHub/)
+  reset()
+  sh(`${asGitHub()} git commit -q --allow-empty -m "Edited on GitHub"`, merged)
+  assert.match(push().reason, /committed by GitHub/)
+})
+
+test('a pull request is never edited with raw gh api: body or title, inline, from a file or as JSON', () => {
+  writeFileSync(join(repo, 'pr-body.md'), body())
+  const json = writeJson('pr-edit.json', { body: body() })
+  for (const c of [
+    'gh api -X PATCH repos/mcthaydt/One/pulls/7 -F body=@pr-body.md',
+    'gh api -X PATCH repos/mcthaydt/One/pulls/7 --field body=@pr-body.md',
+    `gh api -X PATCH repos/mcthaydt/One/pulls/7 -f body='${body()}'`,
+    `gh api -X PATCH repos/mcthaydt/One/pulls/7 --input ${json}`,
+    'gh api repos/mcthaydt/One/pulls/7 -f title=New',
+  ])
+    assert.match(bash(c).reason, /never with raw gh api on pulls/, c)
+  // Reopening stays judged by the open limit, as before.
+  assert.equal(bash('gh api -X PATCH repos/mcthaydt/One/pulls/7 -f state=open').denied, false)
 })
