@@ -1281,7 +1281,7 @@ function checkOtherRoutes(cmd, config, deny, ctx) {
     }
     if (file && /(^|\/)\.claude\/hooks\/rules(\.test)?\.mjs$/.test(resolve(cmd.cwd, file))) return; // the hook and its own test, run by hand
     if (cmd.prog === 'node' && hasFlag(a, ['--check', '-c'])) return; // a syntax check runs nothing
-    if (text && (ghWriteText(text) || GH_ISSUE_WRITE.test(text) || GIT_PUSH_RISKY.test(text) || GIT_PUSH_LIST.test(text))) { deny(refusal(ROUTE_RULE, `${cmd.prog} runs a script that calls gh to change a pull request`, 'run the gh command in Bash, where the hooks read it')); return; }
+    if (text && (ghWriteText(text) || GH_ISSUE_WRITE.test(text) || GIT_PUSH_RISKY.test(text) || GIT_PUSH_LIST.test(text))) { deny(refusal(ROUTE_RULE, `${cmd.prog} runs a script that calls gh or git to write (a command quoted in a string counts, since the script could run it)`, 'run the gh command in Bash, where the hooks read it; to save a note that quotes one, use the Write or Edit tool')); return; }
     if (text && GITHUB_API.test(text) && WRITE_WORDS.test(text)) deny(refusal(ROUTE_RULE, `${cmd.prog} runs a script that writes to the GitHub API`, 'use gh api with the REST path (the hooks judge it), or the GitHub MCP tool'));
     return;
   }
@@ -1424,7 +1424,7 @@ function httpTarget(a) {
 const GH_WRITE_ALLOWED = [
   /^repos\/[^/]+\/[^/]+\/pulls$/,
   /^repos\/[^/]+\/[^/]+\/pulls\/\d+$/,
-  /^repos\/[^/]+\/[^/]+\/pulls\/\d+\/(merge|ccr\/ready_for_review|ccr\/auto_merge|requested_reviewers)$/,
+  /^repos\/[^/]+\/[^/]+\/pulls\/\d+\/(merge|ccr\/ready_for_review|ccr\/convert_to_draft|ccr\/auto_merge|requested_reviewers)$/,
   /^repos\/[^/]+\/[^/]+\/pulls\/\d+\/reviews(\/\d+(\/(events|dismissals))?)?$/,
   /^repos\/[^/]+\/[^/]+\/pulls\/\d+\/comments(\/\d+\/replies)?$/,
   /^repos\/[^/]+\/[^/]+\/pulls\/comments\/\d+$/,
@@ -1441,11 +1441,42 @@ function ghApiWrite(cmd, config, deny) {
   if (api.pathUnknown || !api.path) { deny(refusal(ROUTE_RULE, `gh api ${api.method} to a path the hook cannot read before the call`, 'write the path out in full (repos/<owner>/<repo>/...)')); return; }
   if (/^graphql$/.test(api.path) && (api.unknown.has('query') || api.inputUnknown || /\bmutation\b/.test(String(api.fields.query ?? '')))) { deny(refusal(ROUTE_RULE, 'a GraphQL mutation (gh api graphql)', 'use gh pr or the REST routes (gh api repos/<o>/<r>/pulls ...), which these checks read')); return; }
   if (GH_WRITE_ALLOWED.some((re) => re.test(api.path))) return;
-  const why = /\/(contents|git)\/|\/merges$|\/update-branch$/.test(api.path) ? `${api.path} writes a commit through the API, authored by the token's account, not the CLAUDE.md author`
+  const head = /^repos\/([^/]+)\/([^/]+)\/git\/refs\/heads\/(.+)$/.exec(api.path);
+  if (head && api.method === 'DELETE') {
+    const why = branchDeleteRefusal(cmd.cwd, head[1], head[2], head[3]);
+    if (why) deny(refusal(ROUTE_RULE, why, 'delete a branch only after its pull request has merged'));
+    return;
+  }
+  const why = /\/git\/refs\//.test(api.path) && api.method === 'DELETE' ? `${api.path} deletes a tag or ref through the API, which only the owner does`
+    : /\/(contents|git)\/|\/merges$|\/update-branch$/.test(api.path) ? `${api.path} writes a commit through the API, authored by the token's account, not the CLAUDE.md author`
     : /\/(statuses|check-runs|check-suites)\b/.test(api.path) ? `${api.path} would set a check result by hand`
     : /\/(branches\/[^/]+\/protection|rulesets|hooks|collaborators|actions\/permissions|keys)\b|^repos\/[^/]+\/[^/]+$/.test(api.path) ? `${api.path} changes the repo's settings or protection, which only the owner changes`
     : `${api.method} ${api.path} is not a write the hooks judge`;
   deny(refusal(ROUTE_RULE, why, 'use git for commits, gh pr or the judged REST routes for pull requests; settings and protection are the owner\'s (list a command for them)'));
+}
+// Deleting a merged branch is lane 1 (CLAUDE.md, Risk); deleting commits git cannot restore is not.
+// Null when the branch may go: not the default branch, no open pull request (deleting would close it),
+// and its newest commit is the head a pull request merged on, or already in the default branch
+// (a branch reused after a merge may hold new work). Anything that cannot be read refuses.
+function branchDeleteRefusal(cwd, owner, name, branch) {
+  const repo = `repos/${owner}/${name}`;
+  const def = ghJson(repo, cwd)?.default_branch;
+  if (!def) return `deleting ${branch}: the repo's default branch could not be read`;
+  if (branch === def) return `deleting ${branch}, the default branch`;
+  const prs = ghJson(`${repo}/pulls?state=all&head=${owner}:${branch}&per_page=100`, cwd);
+  if (!Array.isArray(prs)) return `deleting ${branch}: its pull requests could not be read`;
+  if (prs.length >= 100) return `deleting ${branch}: it has 100 or more pull requests, more than one read covers`;
+  const mine = prs.filter((p) => p?.head?.ref === branch);
+  const open = mine.find((p) => p.state === 'open');
+  if (open) return `deleting ${branch}, which has an open pull request #${open.number}`;
+  const merged = mine.filter((p) => p.merged_at);
+  if (!merged.length) return `deleting ${branch}, whose pull request is not merged`;
+  const sha = ghJson(`${repo}/git/ref/heads/${branch}`, cwd)?.object?.sha;
+  if (!sha) return `deleting ${branch}: its newest commit could not be read`;
+  if (merged.some((p) => p.head?.sha === sha)) return null;
+  const status = ghJson(`${repo}/compare/${def}...${sha}`, cwd)?.status;
+  if (status === 'behind' || status === 'identical') return null;
+  return status ? `deleting ${branch}, which has commits no merged pull request holds` : `deleting ${branch}: whether ${def} holds its commits could not be read`;
 }
 // gh commands that change settings, protection, secrets or workflows: the owner's.
 const GH_OWNER_ONLY = { repo: ['edit', 'delete', 'archive', 'unarchive', 'rename', 'deploy-key'], ruleset: ['create', 'edit', 'delete'], secret: ['set', 'delete', 'remove'], variable: ['set', 'delete'], workflow: ['enable', 'disable', 'run'], release: ['create', 'edit', 'delete', 'upload', 'delete-asset'] };
@@ -1489,6 +1520,8 @@ function checkFileWrite(input, config, root, deny) {
 
 // ---------- the checks: MCP tools ----------
 
+// Fences that hold data, never commands for the owner; every other fence is read as today.
+const DATA_FENCES = new Set(['json', 'jsonc', 'json5', 'yaml', 'yml', 'toml']);
 const toolMatches = (name, patterns = []) => patterns.some((p) => new RegExp(p).test(name));
 function checkMcp(name, input, config, root, deny, ctx) {
   // Starting a workflow (the release is one) or writing a release is the owner's, on every route.
@@ -1531,10 +1564,12 @@ function checkMcp(name, input, config, root, deny, ctx) {
   for (const t of config.ownerCommands?.tools ?? []) {
     if (config.ownerCommands.enabled === false || !new RegExp(t.tool).test(name)) continue;
     const text = (t.fields ?? ['text']).map((f) => rel(input[f])).join('\n');
-    let fenced = false;
+    // A data fence (json, yaml, toml) holds no command for the owner, even when a string in it quotes one.
+    let fenced = false, data = false;
     for (const l of lines(text)) {
-      if (/^\s*(```|~~~)/.test(l)) { fenced = !fenced; continue; }
-      if (!fenced) continue;
+      const f = /^\s*(```|~~~)\s*(\S*)/.exec(l);
+      if (f) { fenced = !fenced; data = fenced && DATA_FENCES.has(f[2].toLowerCase()); continue; }
+      if (!fenced || data) continue;
       const s = l.trim().replace(/^\$\s+/, '');
       if (/^git\s/.test(s)) { deny(refusal('Every command handed to the owner uses gh, never plain git (Owner).', `"${s.slice(0, 80)}"`, 'the gh equivalent (gh repo clone, gh pr checkout, gh api ...)')); break; }
       if (/\bgh api\b/.test(s) && !/^GH_PAGER=cat\s/.test(s)) { deny(refusal('Every gh api command handed to the owner starts with GH_PAGER=cat (Owner).', `"${s.slice(0, 80)}"`, `GH_PAGER=cat ${s}`)); break; }
