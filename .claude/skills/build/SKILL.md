@@ -11,6 +11,7 @@ The least every brief's acceptance criteria cover, where they apply:
 
 - Every core journey works end to end, with its loading, empty, error and recovery states.
 - Everything works with the keyboard alone, and focus is always visible.
+- In a repo with app screens, every app screen behaves like an app, not a web page (`CLAUDE.md`), checked by the repo's program on every screen.
 - Where there are users, users cannot access data outside their permissions.
 - The supported browsers named in the brief pass.
 - The performance budgets in the brief (load time, delay after a tap or a key) hold, measured.
