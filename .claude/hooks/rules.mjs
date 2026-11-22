@@ -237,6 +237,8 @@ const ENV_WORD = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh', 'mksh', 'ksh93', 'pdksh', 'yash', 'ash', 'fish', 'tcsh', 'csh']);
 const PNPM_OWN = new Set(['add', 'install', 'i', 'remove', 'rm', 'update', 'up', 'outdated', 'list', 'ls', 'why', 'audit', 'store', 'config', 'init', 'link', 'unlink', 'prune', 'publish', 'pack', 'rebuild', 'root', 'bin', 'env', 'setup', 'import', 'fetch', 'patch', 'patch-commit', 'deploy', 'licenses', 'server', 'help', 'create', 'recursive', 'run', 'exec', 'dlx', 'test', 't', 'start']);
 
+// Shell reserved words that start a command; bash takes NAME=value words after them, as at the start.
+const SHELL_WORDS = new Set(['do', 'then', 'else', 'elif', 'if', 'while', 'until', '!', '{', 'coproc', 'time']);
 // Turns parsed commands into checkable ones: wrappers peeled, inline env split off,
 // `bash -c` and `eval` read again, `cd` and `export` carried to later commands.
 function simpleCommands(src, baseCwd, depth = 0) {
@@ -246,14 +248,24 @@ function simpleCommands(src, baseCwd, depth = 0) {
   for (const c of parseShell(src)) {
     let words = [...c.words];
     let pkg = false; // the program word names a package a runner fetches (npx, pnpm dlx), not a path
+    let xargs = false; // xargs adds words from its input that the hook never sees
     const env = { ...exported };
     while (words.length && ENV_WORD.test(words[0])) { const [k, ...v] = words.shift().split('='); env[k] = v.join('='); }
     // Peel wrappers.
     for (let guard = 0; guard < 10 && words.length; guard++) {
       const w = words[0];
+      // A loop or if body starts with a shell word; the command after it is the one that runs.
+      // In `coproc NAME { ... }` the word before the brace names the coprocess; it is no program.
+      if (SHELL_WORDS.has(w)) {
+        words.shift();
+        if (w === 'time') while (words[0]?.startsWith('-')) words.shift();
+        if (w === 'coproc' && words[1] === '{') words.shift();
+        while (words.length && ENV_WORD.test(words[0])) { const [k, ...v] = words.shift().split('='); env[k] = v.join('='); }
+        continue;
+      }
       if (w === 'sudo' || w === 'doas') { words.shift(); while (words[0]?.startsWith('-')) { const f = words.shift(); if (f === '--') break; if (/^-[ugpChDrtURC]$/.test(f) || /^--(user|group|host|prompt|chdir|close-from|role|type|other-user)$/.test(f)) words.shift(); } continue; }
       if (w === 'flock') { const ci = words.findIndex((x, k) => k > 0 && (x === '-c' || x === '--command')); if (ci !== -1 && words[ci + 1] !== undefined) { result.push(...simpleCommands(words[ci + 1], cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } words.shift(); while (words[0]?.startsWith('-')) { const f = words.shift(); if (/^(-w|--timeout|-E|--conflict-exit-code)$/.test(f)) words.shift(); } words.shift(); continue; }
-      if (w === 'nohup' || w === 'time' || w === 'command' || w === 'exec' || w === 'stdbuf' || w === 'setsid' || w === 'unbuffer') { words.shift(); while (words[0]?.startsWith('-')) words.shift(); continue; }
+      if (w === 'nohup' || w === 'command' || w === 'exec' || w === 'stdbuf' || w === 'setsid' || w === 'unbuffer') { words.shift(); while (words[0]?.startsWith('-')) words.shift(); continue; }
       if (w === 'script') { const ci = words.findIndex((x, k) => k > 0 && (/^-\w*c$/.test(x) || x === '--command')); const eq = words.find((x) => x.startsWith('--command=')); if (eq) { result.push(...simpleCommands(eq.slice(10), cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } if (ci !== -1 && words[ci + 1] !== undefined) { result.push(...simpleCommands(words[ci + 1], cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } }
       if (w === 'env') { words.shift(); while (words.length && (words[0].startsWith('-') || ENV_WORD.test(words[0]))) { const x = words.shift(); if (ENV_WORD.test(x)) { const [k, ...v] = x.split('='); env[k] = v.join('='); } } continue; }
       if (w === 'timeout') { words.shift(); while (words[0]?.startsWith('-')) words.shift(); words.shift(); continue; }
@@ -262,7 +274,7 @@ function simpleCommands(src, baseCwd, depth = 0) {
       if (w === 'su' || w === 'runuser') { const ci = words.findIndex((x, k) => k > 0 && (x === '-c' || x === '--command')); const eq = words.find((x) => x.startsWith('--command=')); const s = eq ? eq.slice(10) : ci !== -1 ? words[ci + 1] : undefined; if (s !== undefined) { result.push(...simpleCommands(s, cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } }
       // find -exec/-execdir/-ok runs the command after it once per file: judge that command.
       if (w === 'find') { const k = words.findIndex((x) => /^-(exec|execdir|ok|okdir)$/.test(x)); if (k === -1) break; const end = words.findIndex((x, j) => j > k && (x === ';' || x === '+')); words = words.slice(k + 1, end === -1 ? undefined : end); continue; }
-      if (w === 'xargs') { words.shift(); while (words[0]?.startsWith('-')) { const f = words.shift(); if (/^-[IdLnPsE]$/.test(f)) words.shift(); } continue; }
+      if (w === 'xargs') { xargs = true; words.shift(); while (words[0]?.startsWith('-')) { const f = words.shift(); if (/^-[IdLnPsE]$/.test(f)) words.shift(); } continue; }
       // Wrappers that run the rest of the line: a display server, priority, CPU or session.
       if (w === 'xvfb-run') { words.shift(); while (words[0]?.startsWith('-')) { const f = words.shift(); if (/^(-n|-s|-e|-f|-p|-w|--server-num|--server-args|--error-file|--auth-file|--xauth-protocol|--wait)$/.test(f)) words.shift(); } continue; }
       if (w === 'nice') { words.shift(); while (words[0]?.startsWith('-')) { const f = words.shift(); if (f === '-n' || f === '--adjustment') words.shift(); } continue; }
@@ -314,7 +326,7 @@ function simpleCommands(src, baseCwd, depth = 0) {
     if (prog === 'eval' && depth < 4) { result.push(...simpleCommands(words.slice(1).join(' '), cwd, depth + 1)); continue; }
     if (prog === 'cd' && !c.nested) { const to = words[1]; if (to && !to.startsWith('-')) cwd = isAbsolute(to) ? to : resolve(cwd, to.replace(/^~(?=\/|$)/, process.env.HOME ?? '~')); continue; }
     if (prog === 'export' && !c.nested) { for (const w of words.slice(1)) if (ENV_WORD.test(w)) { const [k, ...v] = w.split('='); exported[k] = v.join('='); } continue; }
-    result.push({ prog, path: words[0], args: words.slice(1), env, cwd, heredoc: c.heredoc, heredocQuoted: c.heredocQuoted === true, redirects: c.redirects ?? [] });
+    result.push({ prog, path: words[0], args: words.slice(1), env, cwd, heredoc: c.heredoc, heredocQuoted: c.heredocQuoted === true, redirects: c.redirects ?? [], ...(xargs ? { xargs } : {}) });
   }
   return result;
 }
@@ -584,7 +596,7 @@ function scopeFor(root, config, cwd, slug) {
 function checkDefaultBranchPush(cmd, config, deny) {
   if (cmd.prog !== 'git' || config.defaultBranchPush?.enabled === false) return;
   const g = gitParts(cmd);
-  if (g.sub !== 'push' || hasFlag(g.rest, ['--delete', '-d', '-n', '--dry-run'])) return;
+  if (g.sub !== 'push' || pushDeletes(g.rest)) return;
   const def = defaultBranch(config);
   const refspecs = pushWords(g.rest).slice(1);
   let targets;
@@ -598,6 +610,40 @@ function checkDefaultBranchPush(cmd, config, deny) {
   const heads = git(g.cwd, ['ls-remote', '--heads', remote]);
   if (heads.ok && !heads.out.trim()) return;
   deny(refusal(`Nothing is pushed straight to ${def}: CI is the merge gate, and a change reaches ${def} only through a green pull request (release, Lanes and merging).`, `git push to ${def}`, 'push a branch and open a pull request'));
+}
+
+// git push deletes with --delete or any unique prefix of it (--de, --del, ...), or a short flag bundle
+// holding d (-d, -vd), wherever it stands among the arguments.
+const pushDeletes = (rest) => rest.some((w) => /^--de(l(e(t(e)?)?)?)?$/.test(w) || /^-[a-zA-Z0-9]*d[a-zA-Z0-9]*$/.test(w));
+// A push that deletes branches (pushDeletes, or :<branch> and +:<branch> refspecs) is judged branch by
+// branch like the API delete (branchDeleteRefusal); a tag or other ref is the owner's, and --prune,
+// which deletes branches no one names, is refused outright.
+function checkPushDelete(cmd, config, deny) {
+  if (cmd.prog !== 'git' || config.defaultBranchPush?.enabled === false) return;
+  const g = gitParts(cmd);
+  if (g.sub !== 'push') return;
+  // A flag or branch name the shell builds ($D, $(...), $'\x2d', {-d,main}) or xargs adds could be a
+  // delete the hook never sees. A dry run is judged as a real push: --no-dry-run after it wins.
+  const built = cmd.xargs ? 'words xargs adds from its input' : g.rest.find((w) => /[$`{]/.test(w));
+  if (built) { deny(refusal(ROUTE_RULE, `a git push whose words the shell builds (${cmd.xargs ? built : `"${built}"`}), so what it deletes cannot be read before the call`, 'write the git push out in full, with its flags and branch names')); return; }
+  const rule = 'Deleting a merged branch is lane 1; deleting the default branch, or commits no merged pull request holds, is not (CLAUDE.md, Risk).';
+  const prune = g.rest.find((w) => /^--pr(u(n(e)?)?)?$/.test(w));
+  if (prune) { deny(refusal(rule, `git push ${prune}, which deletes remote branches the hook cannot list before the call`, BRANCH_DELETE_WAY)); return; }
+  const [remote = 'origin', ...specs] = pushWords(g.rest);
+  const all = pushDeletes(g.rest);
+  const gone = all ? specs.map((r) => r.split(':').at(-1)) : specs.filter((r) => /^\+?:./.test(r)).map((r) => r.replace(/^\+?:/, ''));
+  if (!gone.length) return;
+  const way = BRANCH_DELETE_WAY;
+  const url = /^[\w.-]+$/.test(remote) ? git(g.cwd, ['remote', 'get-url', '--push', remote]) : { ok: true, out: remote };
+  const slug = url.ok ? /github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(url.out.trim()) : null;
+  for (const ref of gone) {
+    const name = ref.replace(/^refs\/heads\//, '');
+    const why = SUBST.test(ref) ? `deleting "${ref}", which the shell fills in after the hook reads it`
+      : name.startsWith('refs/') ? `deleting ${ref}, a tag or other ref, which only the owner does`
+      : !slug ? `deleting ${name}: the GitHub repo behind "${remote}" could not be read`
+      : branchDeleteRefusal(g.cwd, slug[1], slug[2], name);
+    if (why) { deny(refusal(rule, why, way)); return; }
+  }
 }
 
 // ---------- the checks: Bash ----------
@@ -1011,13 +1057,22 @@ function verdicts(items, f) {
   return out.sort((a, b) => String(a.at).localeCompare(String(b.at)));
 }
 // Commits between a reviewed commit and the head that are only clean merges of the
-// default branch keep the review (release: "a clean merge of current main keeps the review").
+// default branch keep the review (release: "a clean merge of current main keeps the review"),
+// and so do commits that change only audit or live-state files (release: "a later commit that
+// changes only the audit file, a live-state file ... keeps it"). Other docs need a reader to tell.
+const auditOnly = (config, cwd, c) => {
+  const live = liveStatePath(config, 'x').replace(/[^/]*$/, '');
+  const r = git(cwd, ['diff-tree', '--no-commit-id', '--no-renames', '-r', '--name-only', c]);
+  const files = r.ok ? r.out.split('\n').filter(Boolean) : [];
+  return files.length > 0 && files.every((f) => f.endsWith('.md') && (f.startsWith('docs/superpowers/audits/') || (live !== '' && f.startsWith(live))));
+};
 function onlyCleanMerges(config, cwd, from, head) {
   if (git(cwd, ['merge-base', '--is-ancestor', from, head]).ok !== true) return false;
   const r = git(cwd, ['rev-list', '--parents', `${from}..${head}`, '--not', `origin/${defaultBranch(config)}`]);
   if (!r.ok) return false;
   for (const line of r.out.split('\n').filter(Boolean)) {
     const [c, p1, p2, ...more] = line.split(' ');
+    if (p1 && !p2 && auditOnly(config, cwd, c)) continue;
     if (!p2 || more.length) return false;
     const fromMain = git(cwd, ['merge-base', '--is-ancestor', p2, `origin/${defaultBranch(config)}`]).ok;
     const merged = git(cwd, ['merge-tree', '--write-tree', p1, p2]);
@@ -1205,6 +1260,16 @@ function checkPrFlowBash(cmd, config, deny) {
     checkOpenLimit(config, cmd.cwd, repo, pr.head?.ref, deny, pr.number);
     return;
   }
+  // gh pr close --delete-branch deletes a branch whose pull request did not merge: judged like the API delete.
+  if (p.sub === 'pr' && p.sub2 === 'close' && p.rest.slice(1).some((w, i, a) => !/^(-c|--comment)$/.test(a[i - 1] ?? '') && (/^--delete-branch(=(?!false$).*)?$/.test(w) || /^-[a-zA-Z]*d/.test(w)))) {
+    const a = p.rest.slice(1);
+    const url = a.find((w) => /\/pull\/\d+/.test(w));
+    const number = a.find((w) => /^\d+$/.test(w)) ?? (url ? url.replace(/.*\/pull\/(\d+).*/, '$1') : null);
+    const pr = repo && number ? ghJson(`repos/${repo}/pulls/${number}`, cmd.cwd) : null;
+    const why = !pr ? `gh pr close --delete-branch: pull request ${number ?? '(unnamed)'} could not be read` : branchDeleteRefusal(cmd.cwd, ...repo.split('/'), pr.head?.ref);
+    if (why) deny(refusal(ROUTE_RULE, why, `${BRANCH_DELETE_WAY}; name the pull request by number from inside the repo's folder`));
+    return;
+  }
   if (p.sub === 'pr' && (p.sub2 === 'ready' || p.sub2 === 'merge')) {
     const a = p.rest.slice(1);
     if (hasFlag(a, ['--undo', '--disable-auto'])) return;
@@ -1340,13 +1405,27 @@ function checkBashText(text, cmds, config, deny) {
   if (/(^|[\s;&|(`])(export\s+|declare\s+-x\s+|env\s+)?PATH\+?=/.test(text) && cmds.some((c) => ['gh', 'git', 'curl', 'wget'].includes(c.prog) || scriptTool(c.prog))) { deny(refusal(ROUTE_RULE, 'PATH set in the same command as gh, git, curl or a script, which can swap the program that runs', 'run the command with the usual PATH')); return; }
   if (cmds.some((c) => c.prog === 'hash' && c.args.includes('-p'))) deny(refusal(ROUTE_RULE, 'hash -p, which swaps the program a name runs', 'run the command with the usual PATH'));
 }
+// Words a CI watch loop needs that run nothing.
+const LOOP_SAFE = new Set(['sleep', 'break', 'continue']);
+// A gh api call in the text, up to the first character that could start or end another command (a
+// separator, a bracket, a redirect or a backtick); a read names GET or HEAD as its only method (-f/-F
+// then become query fields) and has no input file. Only the call itself is left out of the text.
+const GH_API_SEGMENT = /\bgh\s+api\b[^\n;&|()<>`]*/g;
+const ghApiRead = (s) => {
+  if (/`|\$\(|--input\b/.test(s)) return false;
+  const methods = [...s.matchAll(/(?:^|\s)(?:-X\s*|--method[=\s]\s*)['"]?([A-Za-z]+)/g)].map((m) => m[1].toUpperCase());
+  return methods.length > 0 && methods.every((m) => m === 'GET' || m === 'HEAD');
+};
 // Run after the per-command checks, so a call they refuse gets their own reason first.
 function checkMixedText(text, cmds, config, deny) {
   if (config.routes?.enabled === false) return;
   // Escapes a program may turn back into a new line or tab are read as one.
   const decoded = text.replace(/\\[nr]/g, '\n').replace(/\\t/g, '\t');
   if (dangerText(decoded)) {
-    const odd = cmds.find((c) => !c.fromScript && (!TEXT_SAFE.has(c.prog) || (['echo', 'printf', 'cat', 'jq'].includes(c.prog) && WRITES_FILE(c))));
+    // A CI watch loop waits between polls and stops when done: sleep, break and continue run nothing,
+    // so they may sit beside gh api reads only.
+    const readsOnly = !dangerText(decoded.replace(GH_API_SEGMENT, (s) => (ghApiRead(s) ? '' : s)));
+    const odd = cmds.find((c) => !c.fromScript && (!(TEXT_SAFE.has(c.prog) || (readsOnly && LOOP_SAFE.has(c.prog))) || (['echo', 'printf', 'cat', 'jq'].includes(c.prog) && WRITES_FILE(c))));
     if (odd) { deny(refusal(ROUTE_RULE, `a GitHub or push write in the same command as ${odd.prog === '#unreadable' ? 'a program the hook cannot read' : odd.prog}, which could run it or save it to run later`, 'run the gh or git command on its own in Bash; write notes that quote gh commands with the Write tool, as .md or .txt')); }
   }
 }
@@ -1444,7 +1523,7 @@ function ghApiWrite(cmd, config, deny) {
   const head = /^repos\/([^/]+)\/([^/]+)\/git\/refs\/heads\/(.+)$/.exec(api.path);
   if (head && api.method === 'DELETE') {
     const why = branchDeleteRefusal(cmd.cwd, head[1], head[2], head[3]);
-    if (why) deny(refusal(ROUTE_RULE, why, 'delete a branch only after its pull request has merged'));
+    if (why) deny(refusal(ROUTE_RULE, why, BRANCH_DELETE_WAY));
     return;
   }
   const why = /\/git\/refs\//.test(api.path) && api.method === 'DELETE' ? `${api.path} deletes a tag or ref through the API, which only the owner does`
@@ -1454,6 +1533,7 @@ function ghApiWrite(cmd, config, deny) {
     : `${api.method} ${api.path} is not a write the hooks judge`;
   deny(refusal(ROUTE_RULE, why, 'use git for commits, gh pr or the judged REST routes for pull requests; settings and protection are the owner\'s (list a command for them)'));
 }
+const BRANCH_DELETE_WAY = 'delete a branch only after its pull request has merged: merge or close an open one first, or list the delete as a command for the owner';
 // Deleting a merged branch is lane 1 (CLAUDE.md, Risk); deleting commits git cannot restore is not.
 // Null when the branch may go: not the default branch, no open pull request (deleting would close it),
 // and its newest commit is the head a pull request merged on, or already in the default branch
@@ -1746,7 +1826,7 @@ function preToolUse(root, config, input, ctx) {
       const scope = cmd.prog === 'git' ? scopeFor(root, config, gitParts(cmd).cwd, null) : cmd.prog === 'gh' ? scopeFor(root, config, cmd.cwd, slug) : { root, config: base };
       if (!scope) continue;
       if (scope.config.missingClone && cmd.prog === 'gh' && ghPrWrite(cmd, scope.config)) { deny(refusal(ROUTE_RULE, `a pull request write on ${scope.config.missingClone}, which has no checkout here, so its own rules cannot be read`, `clone it (git clone https://github.com/${scope.config.missingClone}) and run the call from inside its folder`)); break; }
-      for (const check of [checkIdentity, checkAttribution, checkForcePush, checkDefaultBranchPush, checkMergeMethod, checkBypassFlags, checkGpu, checkBanned, checkHostedRunnersOnPush, checkRuleMix, checkPrBodyBash, checkPrFlowBash]) {
+      for (const check of [checkIdentity, checkAttribution, checkForcePush, checkPushDelete, checkDefaultBranchPush, checkMergeMethod, checkBypassFlags, checkGpu, checkBanned, checkHostedRunnersOnPush, checkRuleMix, checkPrBodyBash, checkPrFlowBash]) {
         if (reasons.length) break;
         check(cmd, scope.config, deny, { ...ctx, root: scope.root });
       }
