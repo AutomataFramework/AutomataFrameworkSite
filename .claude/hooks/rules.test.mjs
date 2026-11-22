@@ -775,3 +775,37 @@ test('a pull request is never edited with raw gh api: body or title, inline, fro
   // Reopening stays judged by the open limit, as before.
   assert.equal(bash('gh api -X PATCH repos/mcthaydt/One/pulls/7 -f state=open').denied, false)
 })
+
+test("a pull request's words cannot be changed through the issues API either", () => {
+  // #7 is a pull request, #8 a plain issue, #9 cannot be read.
+  const table = {
+    ...baseTable(0),
+    'repos/mcthaydt/One/issues/7': { number: 7, state: 'open', pull_request: {} },
+    'repos/mcthaydt/One/issues/8': { number: 8, state: 'open' },
+  }
+  writeFileSync(join(repo, 'pr-body.md'), body())
+  const json = writeJson('issue-edit.json', { body: body() })
+  const edits = (n) => [
+    `gh api -X PATCH repos/mcthaydt/One/issues/${n} -F body=@pr-body.md`,
+    `gh api -X PATCH repos/mcthaydt/One/issues/${n} -f title=New`,
+    `gh api -X PATCH repos/mcthaydt/One/issues/${n} --input ${json}`,
+    `gh issue edit ${n} --body-file pr-body.md`,
+    `gh issue edit ${n} --title New`,
+    `gh issue edit https://github.com/mcthaydt/One/issues/${n} -b Hi`,
+  ]
+  for (const c of edits(7)) assert.match(bash(c, { table }).reason, /through the issues API/, c)
+  for (const c of edits(9)) assert.match(bash(c, { table }).reason, /could not be read/, c)
+  for (const c of edits(8))
+    assert.equal(bash(c, { table }).denied, false, `${c}: ${bash(c, { table }).reason}`)
+  const mcpEdit = (n) =>
+    mcp(
+      'mcp__github__issue_write',
+      { method: 'update', owner: 'mcthaydt', repo: 'One', issue_number: n, body: body() },
+      { table },
+    )
+  assert.match(mcpEdit(7).reason, /through the issues API/)
+  assert.match(mcpEdit(9).reason, /could not be read/)
+  assert.equal(mcpEdit(8).denied, false, mcpEdit(8).reason)
+  // Labels and other issue fields stay allowed on a pull request.
+  assert.equal(bash('gh issue edit 7 --add-label bug', { table }).denied, false)
+})

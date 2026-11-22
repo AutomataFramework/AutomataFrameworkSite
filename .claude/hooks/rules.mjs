@@ -938,9 +938,28 @@ function stripFooter(body) {
 }
 const PR_RULE = 'Pull request bodies end with the owner\'s "Requested by" line and carry no Claude attribution (CLAUDE.md, Identity; release).';
 const PR_EDIT_RULE = 'A pull request\'s title and body are edited with gh pr edit or the GitHub MCP tool, never with raw gh api on pulls (Owner, 2026-11-21: no route around the hooks).';
+const PR_EDIT_INSTEAD = 'from inside the repo\'s folder, gh pr edit <n> --body-file <file> (or --title <title>), or the GitHub MCP update_pull_request tool';
+// A pull request is an issue too, so the issues API can change its words past the checks above.
+// An issue that cannot be read may be a pull request: fail closed.
+function issueWordsEdit(cwd, repo, number, what, deny) {
+  const it = repo && number ? ghJson(`repos/${repo}/issues/${number}`, cwd) : null;
+  if (!it) deny(refusal(PR_EDIT_RULE, `${what}: #${number ?? '(unnamed)'} could not be read, so it may be a pull request`, 'read it yourself (gh api repos/<owner>/<repo>/issues/<n>), then retry'));
+  else if (it.pull_request) deny(refusal(PR_EDIT_RULE, `${what} edits pull request #${number}'s words through the issues API`, PR_EDIT_INSTEAD));
+}
 function checkPrBodyBash(cmd, config, deny) {
   if (cmd.prog !== 'gh' || !on(config, 'prBody')) return;
   const p = ghParts(cmd);
+  if (p.sub === 'issue' && p.sub2 === 'edit') {
+    const a = p.rest.slice(1);
+    if (!flagValues(a, ['--body', '-b', '--body-file', '-F', '--title', '-t']).length) return;
+    const url = a.find((w) => /\/(issues|pull)\/\d+/.test(w));
+    const number = a.find((w) => /^\d+$/.test(w)) ?? (url ? url.replace(/.*\/(issues|pull)\/(\d+).*/, '$2') : null);
+    issueWordsEdit(cmd.cwd, repoSlug(config, cmd.cwd, p.repo), number, 'gh issue edit', deny);
+    return;
+  }
+  const issueApi = ghApi(cmd, config);
+  const issue = issueApi && issueApi.method !== 'GET' ? /^repos\/([^/]+\/[^/]+)\/issues\/(\d+)$/.exec(issueApi.path) : null;
+  if (issue && (issueApi.fields.body !== undefined || issueApi.fields.title !== undefined || issueApi.inputUnknown)) { issueWordsEdit(cmd.cwd, issue[1], issue[2], `gh api ${issueApi.method} ${issueApi.path}`, deny); return; }
   let body, known;
   if (p.sub === 'pr' && (p.sub2 === 'create' || p.sub2 === 'edit')) {
     const a = p.rest.slice(1);
@@ -951,7 +970,7 @@ function checkPrBodyBash(cmd, config, deny) {
   } else {
     const api = ghApi(cmd, config);
     if (!api || !/^repos\/[^/]+\/[^/]+\/pulls(\/\d+)?$/.test(api.path) || api.method === 'GET') return;
-    if (/\/\d+$/.test(api.path) && (api.fields.body !== undefined || api.fields.title !== undefined || api.inputUnknown)) { deny(refusal(PR_EDIT_RULE, `gh api ${api.method} ${api.path} edits the pull request's words through the raw API`, 'from inside the repo\'s folder, gh pr edit <n> --body-file <file> (or --title <title>), or the GitHub MCP update_pull_request tool')); return; }
+    if (/\/\d+$/.test(api.path) && (api.fields.body !== undefined || api.fields.title !== undefined || api.inputUnknown)) { deny(refusal(PR_EDIT_RULE, `gh api ${api.method} ${api.path} edits the pull request's words through the raw API`, PR_EDIT_INSTEAD)); return; }
     if (api.inputUnknown) { deny(refusal(PR_RULE, `gh api ${api.path} --input that could not be read as JSON before the call`, 'write the JSON to a file in the repo and pass --input <file>')); return; }
     if (api.fields.body === undefined) { if (/pulls$/.test(api.path)) deny(refusal(PR_RULE, `gh api ${api.path} with no body`, 'write the body to a JSON file and pass --input <file>')); return; }
     body = api.fields.body;
@@ -1495,6 +1514,7 @@ function checkMcp(name, input, config, root, deny, ctx) {
   if (isMerge || isAuto || readyCall) checkReviewed(config, root, repo, number, readyCall ? 'marking it ready' : name, deny);
   if (toolMatches(name, config.mcp?.createPrTools ?? ['create_pull_request$'])) checkPrCreate(config, root, repo, typeof input.body === 'string' ? input.body : '', input.draft === true, deny, input.head ?? null, true);
   if (/issue_write$/.test(name) && String(input.state ?? '').toLowerCase() === 'open' && (input.issue_number ?? input.issueNumber)) reopenIssue(config, root, repo, input.issue_number ?? input.issueNumber, deny);
+  if (/issue_write$/.test(name) && on(config, 'prBody') && (input.issue_number ?? input.issueNumber) && (input.body !== undefined || input.title !== undefined)) issueWordsEdit(root, repo, input.issue_number ?? input.issueNumber, name, deny);
   if (toolMatches(name, config.mcp?.updatePrTools ?? ['update_pull_request$']) && String(input.state ?? '').toLowerCase() === 'open') {
     const pr = repo && number ? ghJson(`repos/${repo}/pulls/${number}`, root) : null;
     if (!pr) deny(refusal(FLOW_RULE, `reopening #${number ?? '(unnamed)'}: it could not be read`, 'read it yourself, then retry'));
