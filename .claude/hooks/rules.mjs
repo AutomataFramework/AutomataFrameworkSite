@@ -952,9 +952,10 @@ function checkPrBodyBash(cmd, config, deny) {
   if (p.sub === 'issue' && p.sub2 === 'edit') {
     const a = p.rest.slice(1);
     if (!flagValues(a, ['--body', '-b', '--body-file', '-F', '--title', '-t']).length) return;
-    const url = a.find((w) => /\/(issues|pull)\/\d+/.test(w));
-    const number = a.find((w) => /^\d+$/.test(w)) ?? (url ? url.replace(/.*\/(issues|pull)\/(\d+).*/, '$2') : null);
-    issueWordsEdit(cmd.cwd, repoSlug(config, cmd.cwd, p.repo), number, 'gh issue edit', deny);
+    // gh edits every issue named, so each is judged; a word that names none is unknown.
+    const refs = ghPositionals(a).map((w) => (/^#?(\d+)$/.exec(w) ?? /\/(?:issues|pull)\/(\d+)(?:[/?#]|$)/.exec(w) ?? [])[1] ?? null);
+    if (!refs.length || refs.includes(null)) { issueWordsEdit(cmd.cwd, null, null, 'gh issue edit', deny); return; }
+    for (const n of new Set(refs)) issueWordsEdit(cmd.cwd, repoSlug(config, cmd.cwd, p.repo), n, 'gh issue edit', deny);
     return;
   }
   const issueApi = ghApi(cmd, config);

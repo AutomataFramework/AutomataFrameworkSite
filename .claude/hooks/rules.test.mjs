@@ -797,6 +797,14 @@ test("a pull request's words cannot be changed through the issues API either", (
   for (const c of edits(9)) assert.match(bash(c, { table }).reason, /could not be read/, c)
   for (const c of edits(8))
     assert.equal(bash(c, { table }).denied, false, `${c}: ${bash(c, { table }).reason}`)
+  // gh edits every issue it is given, and a flag's value is not an issue (audit 1).
+  for (const c of [
+    'gh issue edit 8 7 --body-file pr-body.md',
+    'gh issue edit -t 8 7',
+    'gh issue edit -b 8 7',
+  ])
+    assert.match(bash(c, { table }).reason, /through the issues API/, c)
+  assert.match(bash('gh issue edit --title New', { table }).reason, /could not be read/)
   const mcpEdit = (n) =>
     mcp(
       'mcp__github__issue_write',
