@@ -935,3 +935,234 @@ test('a data block in a message that quotes a gh api write is not a command for 
   assert.equal(post('```json\n{"a": 1}\ngh api repos/mcthaydt/One\ngit push origin x').denied, false)
   assert.equal(post('The hook refused `gh api -X PATCH repos/mcthaydt/One/pulls/1` in prose.').denied, false)
 })
+
+test('a command after do, then or else is judged like any other', () => {
+  for (const c of [
+    'for i in 1; do curl -X POST https://api.github.com/repos/mcthaydt/One/pulls/7/merge; done',
+    `for i in 1; do python3 -c "import os; os.system('gh pr merge 7 --merge')"; done`,
+    'if true; then git push origin --delete main; fi',
+    'if false; then true; else git push --force origin feature; fi',
+    'while true; do git push origin feature:main; done',
+    'if true; then gh pr merge 5 --squash; fi',
+    '{ gh pr merge 5 --squash; }',
+    'until gh pr merge 5 --squash; do echo x; done',
+    // An inline NAME=value after a reserved word, and coproc, hide nothing either (plan audit 1, R1).
+    'if true; then FOO=1 git -c user.name=x -c user.email=x@y commit --allow-empty -m bad; fi',
+    'coproc git -c user.name=x -c user.email=x@y commit --allow-empty -m bad',
+    'coproc w { git -c user.name=x -c user.email=x@y commit --allow-empty -m bad; }',
+    'time GIT_AUTHOR_NAME=x git commit --allow-empty -m bad',
+    'if true; then GIT_AUTHOR_NAME=x git commit --allow-empty -m y; fi',
+  ])
+    assert.equal(bash(c).denied, true, c)
+})
+
+test('a foreground CI watch loop of gh api GETs is allowed; the same loop with a write is not', () => {
+  const runs = 'repos/mcthaydt/One/commits/abc1234/check-runs'
+  for (const c of [
+    `for i in 1 2 3; do gh api -X GET ${runs} -f per_page=100 --jq '.check_runs[].status'; sleep 60; done`,
+    `until gh api --method GET ${runs} -F per_page=100 --jq .total_count | grep -q 5; do sleep 60; done`,
+    `while true; do s=$(gh api --method=GET ${runs} -f per_page=100 --jq '.check_runs[].status'); echo "$s" | grep -qE 'queued|in_progress' || break; sleep 60; done`,
+    `while true; do s=$(gh api -X GET ${runs} --jq '.check_runs[] | select(.status != "completed") | .name' -f per_page=100); [ -z "$s" ] && break; sleep 30; done`,
+  ])
+    assert.equal(bash(c).denied, false, `${c}: ${bash(c).reason}`)
+  for (const c of [
+    // -f with no -X GET is a POST.
+    'for i in 1 2; do gh api repos/mcthaydt/One/issues/7/comments -f body=hi; sleep 60; done',
+    'for i in 1 2; do gh api -X GET -X POST repos/mcthaydt/One/issues/7/comments -f body=hi; sleep 60; done',
+    `for i in 1 2; do gh api -X GET ${runs} -f per_page=1; gh pr merge 7 --merge; sleep 60; done`,
+    `for i in 1 2; do gh api -X GET ${runs} -f q="$(gh pr merge 7 --merge)"; sleep 60; done`,
+    `for i in 1 2; do gh api -X GET ${runs}; curl -X POST https://api.github.com/repos/mcthaydt/One/pulls/7/merge; sleep 60; done`,
+    `for i in 1 2; do gh api -XPOST repos/mcthaydt/One/issues/7/comments -f body=hi; sleep 60; done`,
+    // Only the gh api call itself is left out of the text, never what another program runs (plan audit 1, R2).
+    `gh api -X GET ${runs} > >(caffeinate gh pr merge 5 --squash)`,
+    `gh api -X GET ${runs} > >(caffeinate gh pr merge 5 --squash); sleep 1`,
+  ])
+    assert.equal(bash(c).denied, true, c)
+})
+
+test("a PASS carries across commits that only change audit or live-state files, and no further (#256's shape)", () => {
+  const dir = join(top, 'carry')
+  mkdirSync(dir)
+  makeRepo(dir, 'mcthaydt/One')
+  const commit = (cmds) =>
+    sh([...cmds, 'git add -A', 'git commit -qm c', 'git rev-parse HEAD'].join(' && '), dir)
+  const reviewed = sh('git rev-parse HEAD', dir)
+  const at = (head) => ({
+    ...baseTable(0),
+    'repos/mcthaydt/One/pulls/9': {
+      number: 9,
+      state: 'open',
+      body: body().replace('Lane 1.', 'Lane 3.'),
+      head: { ref: 'feature', sha: head },
+    },
+    'repos/mcthaydt/One/issues/9/comments': [
+      { body: `${reviewed.slice(0, 7)} PASS`, created_at: '2026-11-22T00:00:00Z' },
+    ],
+    'repos/mcthaydt/One/pulls/9/reviews': [],
+  })
+  const ready = (head) =>
+    bash('gh api -X POST repos/mcthaydt/One/pulls/9/ccr/ready_for_review', {
+      cwd: dir,
+      project: dir,
+      own: true,
+      table: at(head),
+    })
+  const branch = (name) => sh(`git checkout -qb ${name} ${reviewed}`, dir)
+  // #256: the audit file lands after the PASS; a live-state file comes and goes.
+  branch('audit-only')
+  commit([
+    'mkdir -p docs/superpowers/audits',
+    'echo ok > docs/superpowers/audits/a-1-implementation-audit.md',
+  ])
+  const live = commit(['mkdir -p docs/superpowers/live', 'echo x > docs/superpowers/live/old.md'])
+  assert.equal(ready(live).denied, false, ready(live).reason)
+  // Anything else in the range makes the PASS stale.
+  branch('audit-and-code')
+  const mixed = commit([
+    'mkdir -p docs/superpowers/audits',
+    'echo ok > docs/superpowers/audits/b.md',
+    'echo y > src/b.ts',
+  ])
+  branch('code-into-audits')
+  const moved = commit(['mkdir -p docs/superpowers/audits', 'git mv src/a.ts docs/superpowers/audits/a.ts'])
+  branch('other-doc')
+  const doc = commit([
+    'mkdir -p docs/superpowers/audits',
+    'echo ok > docs/superpowers/audits/c.md',
+    'echo z > docs/notes.md',
+  ])
+  // Only Markdown in those folders: code there could be imported by what the review covered.
+  branch('code-in-audits')
+  const code = commit(['mkdir -p docs/superpowers/audits', 'echo x > docs/superpowers/audits/run.mjs'])
+  for (const head of [mixed, moved, doc, code])
+    assert.match(ready(head).reason, /no passing review that names its head/, head)
+})
+
+test('a branch delete by git push is judged like the API delete, from one table', () => {
+  const pr = (number, ref, state, merged, sha) => ({
+    number,
+    state,
+    merged_at: merged ? '2026-11-21T00:00:00Z' : null,
+    head: { ref, sha },
+  })
+  const R = 'repos/mcthaydt/One'
+  const ref = (b, sha) => ({ [`${R}/git/ref/heads/${b}`]: { object: { sha } } })
+  const table = {
+    ...baseTable(0),
+    [R]: { private: false, default_branch: 'main' },
+    [`${R}/pulls`]: [
+      pr(1, 'claude/done', 'closed', true, 'd1'),
+      pr(2, 'claude/dropped', 'closed', false, 'x2'),
+      pr(4, 'claude/again', 'open', false, 'a4'),
+      pr(5, 'claude/reused', 'closed', true, 'r5'),
+    ],
+    ...ref('claude/done', 'd1'),
+    ...ref('claude/dropped', 'x2'),
+    ...ref('claude/reused', 'r9'),
+    [`${R}/compare/main...r9`]: { status: 'ahead' },
+    [`${R}/pulls/1`]: pr(1, 'claude/done', 'closed', true, 'd1'),
+    [`${R}/pulls/2`]: pr(2, 'claude/dropped', 'closed', false, 'x2'),
+    [`${R}/pulls/4`]: pr(4, 'claude/again', 'open', false, 'a4'),
+    [`${R}/pulls/5`]: pr(5, 'claude/reused', 'closed', true, 'r5'),
+  }
+  const number = { 'claude/done': 1, 'claude/dropped': 2, 'claude/again': 4, 'claude/reused': 5 }
+  // Every route and form git and gh take for a delete (plan audit 1, R3 and R4).
+  const both = (b) => [
+    `git push origin --delete ${b}`,
+    `git push -d origin ${b}`,
+    `git push -vd origin ${b}`,
+    `git push origin --del ${b}`,
+    `git push origin --dele ${b}`,
+    `git push origin ${b} --delete`,
+    `gh api -X DELETE ${R}/git/refs/heads/${b}`,
+    ...(number[b] ? [`gh pr close ${number[b]} --delete-branch`, `gh pr close ${number[b]} -d`] : []),
+  ]
+  for (const c of [
+    ...both('claude/done'),
+    'git push origin :claude/done',
+    'git push origin :refs/heads/claude/done',
+  ])
+    assert.equal(bash(c, { table }).denied, false, `${c}: ${bash(c, { table }).reason}`)
+  for (const [b, why] of [
+    ['claude/dropped', /not merged/],
+    ['claude/never', /not merged/],
+    ['claude/again', /open pull request #4/],
+    ['claude/reused', /commits no merged pull request holds/],
+  ])
+    for (const c of both(b)) {
+      const r = bash(c, { table })
+      assert.match(r.reason, why, c)
+      assert.match(r.reason, /merged|close|owner/, c)
+    }
+  // The default branch, by every push form.
+  for (const c of [
+    ...both('main'),
+    'git push --delete origin main',
+    'git push origin :main',
+    'git push origin +:main',
+    'git push origin :refs/heads/main',
+    'git push origin --delete claude/done main',
+    'git push origin feature :claude/done :main',
+  ])
+    assert.equal(bash(c, { table }).denied, true, c)
+  // A list is judged branch by branch: one branch that may not go refuses the whole push.
+  assert.match(bash('git push origin --delete claude/done claude/dropped', { table }).reason, /not merged/)
+  assert.match(bash('git push origin :claude/done :claude/again', { table }).reason, /open pull request #4/)
+  // A tag, and anything the hook cannot read, refuses.
+  assert.equal(bash('git push origin --delete refs/tags/v1.0.0', { table }).denied, true)
+  assert.equal(bash('git push origin :refs/tags/v1.0.0', { table }).denied, true)
+  assert.match(
+    bash('git push origin --delete claude/done', { table: { ...table, [R]: 'fail' } }).reason,
+    /could not be read/,
+  )
+  assert.equal(bash('git push nowhere --delete claude/done', { table }).denied, true)
+  assert.equal(bash('git push origin --delete "$B"', { table }).denied, true)
+  assert.match(bash('gh pr close 77 --delete-branch', { table }).reason, /could not be read/)
+  // Every way gh takes the delete flag (plan audit 2, R7); a comment that starts with -d is no flag.
+  for (const c of ['gh pr close 4 -dc bye', 'gh pr close 4 --delete-branch=true', 'gh pr close 4 -d=true'])
+    assert.match(bash(c, { table }).reason, /open pull request #4/, c)
+  assert.equal(bash('gh pr close 4 --delete-branch=false', { table }).denied, false)
+  assert.equal(bash('gh pr close 4 -c -dull', { table }).denied, false)
+  // A push whose words the shell builds could hide a delete (plan audit 2, R6).
+  for (const c of [
+    'D=--delete; git push origin $D claude/again',
+    'git push origin $(printf -- --delete) claude/again',
+  ])
+    assert.match(bash(c, { table }).reason, /shell builds/, c)
+  assert.equal(bash('git push -u origin claude/x', { table }).denied, false)
+  // Brace expansion, ANSI-C quoting and xargs build words too (plan audit 3, R8, R10, R12).
+  for (const c of [
+    'git push origin {-d,main}',
+    'git push {origin,-d,claude/again}',
+    'git push origin -{d,} claude/again',
+    'git push origin {-d,claude/again}',
+    "git push origin $'\\x2d\\x2ddelete' claude/again",
+    "git push origin $'\\055\\055delete' claude/again",
+    "git push origin $'\\x2d'd claude/again",
+    'echo main | xargs git push origin --delete',
+    'echo claude/again | xargs git push origin -d',
+    'echo :claude/again | xargs git push origin',
+  ])
+    assert.match(bash(c, { table }).reason, /shell builds/, c)
+  // Digits bundle with d too (R9); a dry run is judged as real, since --no-dry-run after it wins (R11).
+  for (const c of [
+    'git push -4d origin claude/again',
+    'git push -6vd origin claude/again',
+    'git push --dry-run --no-dry-run origin :claude/again',
+    'git push --dry-run -d origin claude/again',
+  ])
+    assert.match(bash(c, { table }).reason, /open pull request #4/, c)
+  for (const c of [
+    'git push -n --no-dry-run --delete origin main',
+    'git push -n --no-dry-run origin HEAD:main',
+  ])
+    assert.equal(bash(c, { table }).denied, true, c)
+  // --prune deletes branches nobody names, so it is refused outright; a plain close or merge -d is not judged here.
+  for (const c of [
+    'git push --prune origin refs/heads/claude/*:refs/heads/claude/*',
+    'git push --pru origin x',
+  ])
+    assert.match(bash(c, { table }).reason, /--pru/, c)
+  assert.equal(bash('gh pr close 4', { table }).denied, false, bash('gh pr close 4', { table }).reason)
+  assert.equal(bash('git push origin --progress claude/x', { table }).denied, false)
+})
