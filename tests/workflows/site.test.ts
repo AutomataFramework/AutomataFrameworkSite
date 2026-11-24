@@ -71,8 +71,10 @@ test("the pages' address in index.html is the workflow's SITE_URL", () => {
   const url = /^ {2}SITE_URL: (\S+)$/m.exec(head(site))?.[1] ?? ''
   expect(url).toMatch(/^https:\/\//)
   const html = readFileSync(new URL('../../index.html', import.meta.url), 'utf8')
-  expect(html).toContain(`<meta property="og:url" content="${url}/" />`)
-  expect(html).toContain(`<meta property="og:image" content="${url}/share.png" />`)
+  // While the site moves to its own domain (see the address check below), the pages may name it before the workflow does.
+  const address = url === 'https://automataframework.pages.dev' ? 'https://automataframework.com' : url
+  expect(html).toContain(`<meta property="og:url" content="${address}/" />`)
+  expect(html).toContain(`<meta property="og:image" content="${address}/share.png" />`)
 })
 
 test('the deploy job never checks out or builds the game', () => {
@@ -116,8 +118,10 @@ test('two deploys never run at once', () => {
   expect(deploy).toContain('concurrency:\n      group: deploy\n      cancel-in-progress: false')
 })
 
+// The site is moving from automataframework.pages.dev to its own domain (the Owner, 2026-11-24): the pages move first,
+// then the workflow, then this check names only the domain. Until then, either address, written once.
 test('the address is written once and matches the project name in wrangler.toml', () => {
-  expect(site.match(/automataframework\.pages\.dev/g)).toHaveLength(1)
+  expect(site.match(/automataframework\.pages\.dev|https:\/\/automataframework\.com\b/g)).toHaveLength(1)
   const wrangler = readFileSync(new URL('../../wrangler.toml', import.meta.url), 'utf8')
   const project = /^name = "(.+)"$/m.exec(wrangler)?.[1]
   expect(project).toBe('automataframework')
