@@ -36,7 +36,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SITE_URL: https://automataframework.pages.dev
+  SITE_URL: https://automataframework.com
 
 jobs:
   pick:
