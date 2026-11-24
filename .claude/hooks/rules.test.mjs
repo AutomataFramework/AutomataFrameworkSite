@@ -1527,3 +1527,280 @@ test("a body's Lane section decides its lane; with none, the highest lane named 
   // A Lane section that names no lane names none.
   assert.match(ready(body().replace('Lane 1.', 'A doc.')).reason, /names no lane/)
 })
+
+// Hook round 2, stage 1 (spec hook-bypasses-2): constructs the hook cannot read are refused whole.
+const refused = (list, why) => {
+  for (const c of list) {
+    const r = bash(c)
+    assert.equal(r.denied, true, c)
+    if (why) assert.match(r.reason, why, c)
+  }
+}
+const allowed = (list) => {
+  for (const c of list) assert.equal(bash(c).denied, false, `${c}: ${bash(c).reason}`)
+}
+
+test('S1.1 to S1.3: trap and eval text, and PATH spelled around the raw text, are refused', () => {
+  refused(
+    [
+      'trap \'x() { gh pr "$1" 5; }\' DEBUG; x merge',
+      "trap 'rm -f /tmp/a' EXIT; true",
+      "trap -- 'true' EXIT",
+    ],
+    /trap/,
+  )
+  refused(['eval echo hi', "eval 'PA''TH=/tmp'; gh pr list"], /eval/)
+  refused(["export PA''TH=/tmp; gh pr list", "PA''TH=/tmp gh pr list"], /PATH set/)
+  allowed(['trap -l', 'trap -p EXIT', 'trap - EXIT', "trap '' INT", 'trap'])
+})
+
+test('S1.4: a setter the hook does not read, for a name the hooks depend on, is refused', () => {
+  refused([
+    'for PATH in /tmp; do gh pr list; done',
+    'A=PATH; export "$A"=/tmp; gh pr list',
+    'declare -x GH_REPO=o/r; gh pr list',
+    'declare -n R=GH_REPO; R=o/r; gh pr list',
+    'typeset GIT_DIR=/tmp/x; true',
+    'readonly GH_TOKEN=x; true',
+    'read GH_REPO < f; gh pr list',
+    'mapfile GH_HOST < f; gh pr list',
+    'getopts ab GH_REPO; gh pr list',
+    'printf -v GH_REPO %s o/r; gh pr list',
+    'printf -vGH_REPO %s o/r; gh pr list',
+    'let GH_X=1; gh pr list',
+    'select GH_REPO in a b; do gh pr list; done',
+    'export -n GH_REPO; gh pr list',
+    'export {A,B}=1; true',
+    'declare "$A=1"; true',
+    'set -a; GH_REPO=o/r; gh pr list',
+    'declare -n R; R=PATH; R=/tmp; gh pr list',
+    'declare -n R; R=LD_PRELOAD; R=/tmp/x.so; export LD_PRELOAD; git status',
+    'set -- /tmp; for PATH; do gh pr list; done',
+    'for PATH do gh pr list; done',
+    `unset LD_PRELOAD; : \${LD_PRELOAD:=/tmp/x.so}; export LD_PRELOAD; git status`,
+    `: \${PATH:=/tmp}; gh pr list`,
+    `: \${GH_REPO=o/r}; gh pr list`,
+    `x=LD_PRELOAD; : \${!x:=/tmp/x.so}; export LD_PRELOAD; git status`,
+    `x=PATH; : \${!x=/tmp}; gh pr list`,
+    'set -ea; true',
+    'set -k; true',
+    'set -o allexport; true',
+    'set -eo keyword; true',
+  ])
+  allowed([
+    'unset GH_TOKEN; gh pr list',
+    `: "\${SCRATCH:=/tmp/s}"`,
+    `echo "\${GH_REPO:-none}"`,
+    `x=A; echo "\${!x:-none}"`,
+    'set +a',
+    'set +o allexport',
+    'set -euo pipefail',
+    'GH_REPO=mcthaydt/AutomataFramework gh pr list',
+    'export GH_REPO=mcthaydt/AutomataFramework; gh pr list',
+    'export SCRATCH=/tmp/s',
+    'for f in a b; do echo $f; done',
+    'declare -a arr=(1 2); true',
+    'read -r line < f; true',
+    'printf -v OUT %s x; true',
+  ])
+})
+
+test('S1.5: variables that make a program run code are refused; folders and pagers beside git or gh too', () => {
+  refused([
+    'BASH_ENV=/tmp/x.sh bash -c "gh pr list"',
+    'LD_LIBRARY_PATH=/tmp git status',
+    "NODE_OPTIONS='--require /tmp/x.js' node scripts/up.mjs",
+    'export LD_PRELOAD=/tmp/x.so',
+    'LD_PRELOAD=/tmp/x.so gh pr list',
+    "LESSOPEN='|/tmp/x.sh %s' less a.txt",
+    'PYTHONSTARTUP=/tmp/x.py python3 a.py',
+    'PS4=x true',
+    'HOME=/tmp/h git status',
+    'GH_BROWSER=/tmp/b.sh gh pr list',
+    'GH_CONFIG_DIR=/tmp/ghc gh pr view 5',
+    'GH_PAGER=/tmp/p.sh gh pr view 5',
+    'GH_EDITOR=/tmp/e.sh gh pr list',
+    'export HOME=/tmp/h; git status',
+    'HOME=/tmp/h; git status',
+    "env -S 'LD_PRELOAD=/tmp/x.so git status'",
+    "env --split-string='PATH=/tmp gh pr list'",
+  ])
+  allowed(['env FOO=1 node -v', 'HOME=/tmp/h node -v', 'GH_PAGER=cat gh pr list', 'PAGER=cat git log -1'])
+})
+
+test('S1.6: an option that makes a program run another program is refused', () => {
+  refused([
+    'sort --compress-program=./evil.sh -S 1K a',
+    'sort --compress=sh a',
+    'sort --check a',
+    'tar -I ./evil.sh -cf a.tar b',
+    'tar -cIf ./evil.sh a.tar b',
+    'tar --use-compress-program=./evil.sh -cf a.tar b',
+    'tar --use-comp=./e.sh -cf a.tar b',
+    'tar -xf a.tar --to-command=./evil.sh',
+    'tar -cf a.tar b --checkpoint=1 --checkpoint-action=exec=./evil.sh',
+    'rsync -e ./evil.sh a host:b',
+    'rsync -ae ./evil.sh a host:b',
+    'rsync --rsh=./evil.sh a host:b',
+    'zip -T -TT ./evil.sh a.zip b',
+    'awk \'BEGIN{system("./evil.sh")}\'',
+    'awk \'BEGIN { print "x" | "sh" }\'',
+    'awk -f prog.awk a',
+    "awk -i inplace '{print}' a",
+    'ssh -o ProxyCommand=./evil.sh host',
+    'ssh -F /tmp/c host',
+    'scp -o ProxyCommand=./e.sh a host:b',
+    "vim -c '!./evil.sh' a.txt",
+    'vim a.txt',
+    'nvim a.txt',
+  ])
+  allowed([
+    'sort -c a',
+    'sort -u a',
+    'tar -czf a.tgz b',
+    'tar -xf a.tar',
+    "awk '{print $1}' f",
+    "awk -F: '{print $1}' f",
+    'rsync -a a/ b/',
+    'ssh -T git@github.com',
+    'scp a host:b',
+  ])
+})
+
+const hookFile = ['.claude', 'hooks', 'rules.mjs'].join('/')
+test('S1.7: a Bash write to the hook files or the first-look folder is refused; reads stay allowed', () => {
+  const look = join(tmpdir(), 'automata-rule-hooks')
+  const naming = join(top, 'names-hook.diff')
+  const plain = join(top, 'plain.diff')
+  writeFileSync(naming, `--- a/${hookFile}\n+++ b/${hookFile}\n@@ -1 +1 @@\n-a\n+b\n`)
+  writeFileSync(plain, '--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-a\n+b\n')
+  refused([
+    `echo '{}' > .claude/hooks/rules.json`,
+    `cp /tmp/r.mjs ${hookFile}`,
+    `mv /tmp/r.mjs ${hookFile}`,
+    'rm .claude/hooks/rules.json',
+    `sed -i 's/deny(/void(/' ${hookFile}`,
+    `tee ${hookFile} < a`,
+    `truncate -s 0 ${hookFile}`,
+    `ln -s /tmp/r.mjs ${hookFile}`,
+    `dd if=a of=${hookFile}`,
+    `tar -xf a.tar -C .claude/hooks`,
+    `cd .claude/hooks && echo x > rules.mjs`,
+    `rm ${look}/s.json`,
+    `echo x > ${look}/s.json`,
+    `git checkout origin/zz -- ${hookFile}`,
+    `git restore --source=origin/zz ${hookFile}`,
+    `git checkout HEAD -- ${hookFile}`,
+    'git checkout origin/zz -- .',
+    'git restore --source=origin/zz .',
+    'git checkout origin/zz .claude',
+    `patch ${hookFile} < ${plain}`,
+    `patch -p1 < ${naming}`,
+    `git apply ${naming}`,
+    `cat ${plain} | patch -p1`,
+    `git apply < ${join(top, 'not-there.diff')}`,
+    'git apply --directory=.claude/hooks a.diff',
+    `git rm ${hookFile}`,
+    `git mv ${hookFile} /tmp/x`,
+    'rm -rf .claude',
+    'mv .claude /tmp/c',
+    'cp -r /tmp/c .claude',
+    'mv /tmp/c .claude',
+  ])
+  allowed([
+    `git rm --cached ${hookFile}`,
+    'git rm src/a.ts',
+    'cp a .',
+    'cp -r src/x .',
+    'rm -rf /tmp/s',
+    `grep -n deny ${hookFile}`,
+    'node --test .claude/hooks/rules.test.mjs',
+    `sha256sum ${hookFile}`,
+    `cat ${hookFile} | head -3`,
+    `cp ${hookFile} /tmp/copy.mjs`,
+    'git checkout -b x',
+    'git checkout main',
+    'git restore --staged src/a.ts',
+    'git restore src/a.ts',
+    'git checkout -- .',
+    'git restore .',
+    'git checkout HEAD -- .',
+    `git apply ${plain}`,
+    `patch -p1 < ${plain}`,
+    'git fetch origin main',
+  ])
+})
+
+test('S1.8: an edit of settings.json keeps rules.mjs on each of the four events', () => {
+  const path = join(repo, '.claude', 'settings.json')
+  const entry = (matcher, command = 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/rules.mjs"') => ({
+    ...(matcher ? { matcher } : {}),
+    hooks: [{ type: 'command', command }],
+  })
+  const settings = {
+    permissions: { allow: ['Bash(ls)'] },
+    hooks: {
+      SessionStart: [entry()],
+      PreToolUse: [entry('Bash|Write|Edit|MultiEdit|Agent|Workflow|mcp__.*')],
+      PostToolUse: [entry('Bash|Write|Edit|MultiEdit|mcp__.*')],
+      Stop: [entry()],
+    },
+  }
+  const text = JSON.stringify(settings, null, 2)
+  writeFileSync(path, text)
+  const edit = (old_string, new_string) =>
+    hook('PreToolUse', { tool_name: 'Edit', tool_input: { file_path: path, old_string, new_string } })
+  const write = (value) =>
+    hook('PreToolUse', {
+      tool_name: 'Write',
+      tool_input: { file_path: path, content: JSON.stringify(value) },
+    })
+  try {
+    for (const r of [
+      edit('"PreToolUse"', '"PreToolUseX"'),
+      edit('"Stop"', '"StopX"'),
+      edit('"PostToolUse"', '"PostToolUseX"'),
+      edit('rules.mjs', 'other.mjs'),
+      write({ ...settings, hooks: { ...settings.hooks, PreToolUse: [entry('Bash')] } }),
+      write({ ...settings, hooks: { ...settings.hooks, PostToolUse: undefined } }),
+      write({}),
+    ])
+      assert.match(r.reason, /rule hooks/)
+    assert.equal(
+      edit('Bash(ls)', 'Bash(ls)", "Bash(pwd)').denied,
+      false,
+      edit('Bash(ls)', 'Bash(pwd)').reason,
+    )
+    assert.equal(write(settings).denied, false)
+  } finally {
+    rmSync(path, { force: true })
+  }
+})
+
+test('S1.10 to S1.12: git pointed at another repo, a new repo with its own hooks, and submodules are refused', () => {
+  refused([
+    'GIT_DIR=/tmp/other/.git git push origin HEAD:feat',
+    'GIT_WORK_TREE=/tmp/other git status',
+    'GIT_INDEX_FILE=/tmp/i git status',
+    'git --git-dir=/tmp/o/.git status',
+    'git --work-tree /tmp/o status',
+    'git clone --template=/tmp/t https://github.com/mcthaydt/AutomataFrameworkSite /tmp/s/site',
+    'git clone --template /tmp/t https://github.com/mcthaydt/AutomataFrameworkSite /tmp/s/site',
+    'git clone -c core.fsmonitor=/tmp/x.sh https://github.com/mcthaydt/AutomataFrameworkSite /tmp/s/site',
+    'git clone --config core.pager=/tmp/x.sh https://github.com/mcthaydt/AutomataFrameworkSite /tmp/s/site',
+    'git init --template=/tmp/t /tmp/s/n',
+    'git config init.templateDir /tmp/t',
+    'git submodule update --init',
+    'git submodule status',
+    'git checkout --recurse-submodules main',
+    'git pull --recurse-submodules',
+    'git config submodule.recurse true',
+  ])
+  allowed([
+    'git -C ../AutomataFrameworkSite status',
+    'git clone https://github.com/mcthaydt/AutomataFrameworkSite /tmp/s/site',
+    'git clone -c user.name=McThayDT https://github.com/mcthaydt/AutomataFrameworkSite /tmp/s/site',
+    'git init /tmp/s/n',
+    'git checkout --no-recurse-submodules main',
+  ])
+})
