@@ -12,7 +12,7 @@ const COUNTER = /^https:\/\/static\.cloudflareinsights\.com\/beacon\.min\.js/
 const REPORT = /^https:\/\/cloudflareinsights\.com\/cdn-cgi\/rum/
 const WORDS = {
   question: 'May we count your visit?',
-  more: 'We only want to know how many people come. Cloudflare does the counting, with no cookies. Nothing is counted unless you press Yes.',
+  more: 'We only want to know how many people come. Cloudflare does the counting, with no cookies. Unless you press Yes, we count nothing.',
   yes: 'Yes',
   no: 'No',
   stop: 'Stop counting my visits',
@@ -69,6 +69,23 @@ for (const size of SIZES) {
         expect(box?.height ?? 0, name).toBeGreaterThanOrEqual(48)
         expect(box?.width ?? 0, name).toBeGreaterThanOrEqual(48)
       }
+      // A fair question: Yes is not drawn to look like the answer to give. Both buttons share one look and one size.
+      const look = (name: string) =>
+        notice(page)
+          .getByRole('button', { name, exact: true })
+          .evaluate((button) => {
+            const style = getComputedStyle(button)
+            const box = button.getBoundingClientRect()
+            return [
+              style.color,
+              style.backgroundColor,
+              style.borderColor,
+              style.fontWeight,
+              box.width,
+              box.height,
+            ]
+          })
+      expect(await look(WORDS.yes)).toEqual(await look(WORDS.no))
       // The game has started playing itself, the page has settled, and still nobody but the site was asked for anything.
       await untilWatching(page)
       await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 1_000)))
