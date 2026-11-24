@@ -90,6 +90,7 @@ html.lenis body {
 :root[data-picture="share"] .tag span,
 :root[data-picture="share"] .tag .icon,
 :root[data-picture="share"] .actions,
+:root[data-picture="share"] .ask,
 :root[data-picture="share"] .lede,
 :root[data-picture="share"] .sheet-head .btn,
 :root[data-picture="share"] .sheet-head .how,

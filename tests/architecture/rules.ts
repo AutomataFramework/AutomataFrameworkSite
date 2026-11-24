@@ -15,6 +15,7 @@ export const LAYERS = [
   'pictures',
   'motion',
   'play',
+  'count',
   'page',
 ] as const
 
@@ -48,7 +49,7 @@ const NODE_FEATURES: ReadonlySet<string> = new Set([
   'pictures',
 ])
 /** Features that only a page uses: the Node entry may not reach them. */
-const PAGE_FEATURES: ReadonlySet<string> = new Set(['motion', 'play', 'page'])
+const PAGE_FEATURES: ReadonlySet<string> = new Set(['motion', 'play', 'count', 'page'])
 
 interface Source {
   readonly file: string

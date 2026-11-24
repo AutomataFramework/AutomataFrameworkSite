@@ -18,6 +18,8 @@
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="Finish the game your agent started." />
     <meta name="twitter:card" content="summary_large_image" />
+    <!-- The site token of Cloudflare Web Analytics for this site. Empty: the page asks nothing and counts nothing. -->
+    <meta name="automata-counter-token" content="" />
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
@@ -41,6 +43,14 @@
             <button type="button" class="btn main" data-play hidden><i data-icon="play"></i>Play the first game</button>
             <a class="btn second" data-address="files"><i data-icon="github-logo"></i>See how it is made</a>
           </div>
+          <section class="ask" aria-labelledby="ask-title" data-ask hidden>
+            <h2 id="ask-title">May we count your visit?</h2>
+            <p>We only want to know how many people come. Cloudflare does the counting, with no cookies. Unless you press Yes, we count nothing.</p>
+            <div class="ask-answers">
+              <button type="button" class="btn second small" data-count="yes">Yes</button>
+              <button type="button" class="btn second small" data-count="no">No</button>
+            </div>
+          </section>
           <section class="sheet" aria-label="The game">
             <div class="sheet-head">
               <b data-fact="name"></b>
@@ -147,7 +157,8 @@
           <a href="https://github.com/mcthaydt/AutomataFramework">The toolkit's files</a></div>
         <div><h3>About</h3>
           <a href="#today">What works today</a>
-          <a href="/licences.txt">Licences</a></div>
+          <a href="/licences.txt">Licences</a>
+          <button type="button" class="link" data-count-change hidden>Count my visits</button></div>
       </nav>
     </div></footer>
     <script type="module" src="/src/index.ts"></script>

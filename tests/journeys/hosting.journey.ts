@@ -55,7 +55,7 @@ test('every page is sent with its safety headers', async ({ request }) => {
     expect(headers['referrer-policy'], address).toBe('strict-origin-when-cross-origin')
     const policy = headers['content-security-policy'] ?? ''
     expect(policy, address).toBe(
-      "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' data: blob:; worker-src 'self' blob:; frame-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'",
+      "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' data: blob: https://cloudflareinsights.com; worker-src 'self' blob:; frame-src 'self'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'",
     )
     expect(policy, address).toContain("frame-ancestors 'self'")
     expect(policy, address).toContain("script-src 'self' 'wasm-unsafe-eval'")
