@@ -15,7 +15,7 @@ The website for Automata Framework: one page that says what the toolkit is for a
   colours and fonts are in `src/styles/base.css`, and the pictures of every run are kept as that run's artifacts.
 - **The pictures are taken by the build.** It opens the built game once in a browser and saves the picture the page
   shows before Play, the picture a shared link shows, and the touch icon.
-- **The site is static files**, hosted on Cloudflare Pages at https://automataframework.com.
+- **The site is static files**, hosted on Cloudflare Pages at `automataframework.pages.dev`.
 - **Tests run only in GitHub Actions**, never on your machine. `pnpm lint`, `pnpm typecheck`, `pnpm knip` and
   `pnpm build` are quick checks you can run before you push.
 

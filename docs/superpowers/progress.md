@@ -42,7 +42,7 @@ Last updated: 2026-11-20 14:56 UTC (from `date`).
 
 ### Previews
 
-- The live site: https://automataframework.com (every merge to `main` deploys it).
+- The live site: https://automataframework.pages.dev (every merge to `main` deploys it).
 
 ### Material decisions
 
