@@ -209,7 +209,7 @@ function parseShell(src) {
         while (src[i] === ' ') i++;
         const from = i;
         while (i < src.length && !/[\s;&|()]/.test(src[i])) i++;
-        if (writes) (cmd.redirects ??= []).push(src.slice(from, i).replace(/['"]/g, ''));
+        (writes ? (cmd.redirects ??= []) : (cmd.inputs ??= [])).push(src.slice(from, i).replace(/['"]/g, ''));
         continue;
       }
       if (/^[0-9]$/.test(ch) && word === null && (src[i + 1] === '>' || (src[i + 1] === '<' && src[i + 2] !== '<'))) { i++; continue; }
@@ -248,9 +248,11 @@ function simpleCommands(src, baseCwd, depth = 0) {
   for (const c of parseShell(src)) {
     let words = [...c.words];
     let pkg = false; // the program word names a package a runner fetches (npx, pnpm dlx), not a path
+    let envSplit = false; // env -S builds its command and assignments from one string when it runs
     let xargs = false; // xargs adds words from its input that the hook never sees
     const env = { ...exported };
-    while (words.length && ENV_WORD.test(words[0])) { const [k, ...v] = words.shift().split('='); env[k] = v.join('='); }
+    const own = new Set(); // names this command assigns itself; with no program after them it is a bare assignment
+    while (words.length && ENV_WORD.test(words[0])) { const [k, ...v] = words.shift().split('='); env[k] = v.join('='); own.add(k); }
     // Peel wrappers.
     for (let guard = 0; guard < 10 && words.length; guard++) {
       const w = words[0];
@@ -260,14 +262,14 @@ function simpleCommands(src, baseCwd, depth = 0) {
         words.shift();
         if (w === 'time') while (words[0]?.startsWith('-')) words.shift();
         if (w === 'coproc' && words[1] === '{') words.shift();
-        while (words.length && ENV_WORD.test(words[0])) { const [k, ...v] = words.shift().split('='); env[k] = v.join('='); }
+        while (words.length && ENV_WORD.test(words[0])) { const [k, ...v] = words.shift().split('='); env[k] = v.join('='); own.add(k); }
         continue;
       }
       if (w === 'sudo' || w === 'doas') { words.shift(); while (words[0]?.startsWith('-')) { const f = words.shift(); if (f === '--') break; if (/^-[ugpChDrtURC]$/.test(f) || /^--(user|group|host|prompt|chdir|close-from|role|type|other-user)$/.test(f)) words.shift(); } continue; }
       if (w === 'flock') { const ci = words.findIndex((x, k) => k > 0 && (x === '-c' || x === '--command')); if (ci !== -1 && words[ci + 1] !== undefined) { result.push(...simpleCommands(words[ci + 1], cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } words.shift(); while (words[0]?.startsWith('-')) { const f = words.shift(); if (/^(-w|--timeout|-E|--conflict-exit-code)$/.test(f)) words.shift(); } words.shift(); continue; }
       if (w === 'nohup' || w === 'command' || w === 'exec' || w === 'stdbuf' || w === 'setsid' || w === 'unbuffer') { words.shift(); while (words[0]?.startsWith('-')) words.shift(); continue; }
       if (w === 'script') { const ci = words.findIndex((x, k) => k > 0 && (/^-\w*c$/.test(x) || x === '--command')); const eq = words.find((x) => x.startsWith('--command=')); if (eq) { result.push(...simpleCommands(eq.slice(10), cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } if (ci !== -1 && words[ci + 1] !== undefined) { result.push(...simpleCommands(words[ci + 1], cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } }
-      if (w === 'env') { words.shift(); while (words.length && (words[0].startsWith('-') || ENV_WORD.test(words[0]))) { const x = words.shift(); if (ENV_WORD.test(x)) { const [k, ...v] = x.split('='); env[k] = v.join('='); } } continue; }
+      if (w === 'env') { words.shift(); while (words.length && (words[0].startsWith('-') || ENV_WORD.test(words[0]))) { const x = words.shift(); if (ENV_WORD.test(x)) { const [k, ...v] = x.split('='); env[k] = v.join('='); } else if (/^(-[A-Za-z]*S|--split-string)/.test(x)) envSplit = true; } continue; }
       if (w === 'timeout') { words.shift(); while (words[0]?.startsWith('-')) words.shift(); words.shift(); continue; }
       if (w === 'busybox' || w === 'builtin') { words.shift(); continue; } // busybox sh, builtin command gh: the program follows
       // su -c runs its string as a shell command, like bash -c.
@@ -296,7 +298,12 @@ function simpleCommands(src, baseCwd, depth = 0) {
       }
       break;
     }
-    if (!words.length) continue;
+    if (envSplit) { result.push({ prog: '#unreadable', path: 'env', args: words, env, cwd, heredoc: null, why: 'env -S, which builds its command when it runs' }); continue; }
+    if (!words.length) {
+      // A bare NAME=value changes a variable the environment may already export (HOME, PAGER): checks see it as #env.
+      if (own.size) result.push({ prog: '#env', path: '', args: [], env: Object.fromEntries([...own].map((k) => [k, env[k]])), cwd, heredoc: null, redirects: c.redirects ?? [], inputs: c.inputs ?? [] });
+      continue;
+    }
     // What the hook cannot read before the call is refused (checkOtherRoutes): a program word the
     // shell builds, a shell function or alias, a shell fed from a pipe, a script not there yet.
     const unreadable = (why) => result.push({ prog: '#unreadable', path: words[0], args: words.slice(1), env, cwd, heredoc: null, why });
@@ -307,8 +314,10 @@ function simpleCommands(src, baseCwd, depth = 0) {
     // Nested shells are read again.
     if (SHELLS.has(prog) && depth < 4) {
       const ci = words.indexOf('-c');
-      if (ci !== -1 && words[ci + 1] !== undefined) { result.push(...simpleCommands(words[ci + 1], cwd, depth + 1)); continue; }
-      if (c.heredoc !== null && words.slice(1).every((x) => x.startsWith('-'))) { result.push(...simpleCommands(c.heredoc, cwd, depth + 1)); continue; }
+      // The variables set in front of the shell reach what it runs (BASH_ENV=x bash -c ...).
+      const inherit = (x) => ({ ...x, env: { ...env, ...x.env } });
+      if (ci !== -1 && words[ci + 1] !== undefined) { result.push(...simpleCommands(words[ci + 1], cwd, depth + 1).map(inherit)); continue; }
+      if (c.heredoc !== null && words.slice(1).every((x) => x.startsWith('-'))) { result.push(...simpleCommands(c.heredoc, cwd, depth + 1).map(inherit)); continue; }
       if (c.heredoc === null && words.slice(1).every((x) => x.startsWith('-'))) { unreadable(`${prog} reading its commands from a pipe or a process substitution`); continue; }
     }
     // A shell script file is read too, so a command in it is judged like one typed here.
@@ -325,10 +334,15 @@ function simpleCommands(src, baseCwd, depth = 0) {
       if (text !== null) runs = resolve(cwd, file.replace(/^~(?=\/)/, process.env.HOME ?? '~'));
       if (text !== null) result.push(...simpleCommands(text, cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env }, fromScript: file })));
     }
-    if (prog === 'eval' && depth < 4) { result.push(...simpleCommands(words.slice(1).join(' '), cwd, depth + 1)); continue; }
+    // eval joins its words and runs the result, which loses what the parser saw: refused, never read again.
+    if (prog === 'eval' && words.length > 1) { unreadable('eval, which runs text the shell builds'); continue; }
     if (prog === 'cd' && !c.nested) { const to = words[1]; if (to && !to.startsWith('-')) cwd = isAbsolute(to) ? to : resolve(cwd, to.replace(/^~(?=\/|$)/, process.env.HOME ?? '~')); continue; }
-    if (prog === 'export' && !c.nested) { for (const w of words.slice(1)) if (ENV_WORD.test(w)) { const [k, ...v] = w.split('='); exported[k] = v.join('='); } continue; }
-    result.push({ prog, path: words[0], args: words.slice(1), env, cwd, heredoc: c.heredoc, heredocQuoted: c.heredocQuoted === true, redirects: c.redirects ?? [], ...(xargs ? { xargs } : {}), ...(runs ? { runs } : {}) });
+    if (prog === 'export' && !c.nested) {
+      for (const w of words.slice(1)) if (ENV_WORD.test(w)) { const [k, ...v] = w.split('='); exported[k] = v.join('='); }
+      result.push({ prog, path: words[0], args: words.slice(1), env, cwd, heredoc: null, redirects: c.redirects ?? [], inputs: c.inputs ?? [] }); // the checks read export too
+      continue;
+    }
+    result.push({ prog, path: words[0], args: words.slice(1), env, cwd, heredoc: c.heredoc, heredocQuoted: c.heredocQuoted === true, redirects: c.redirects ?? [], inputs: c.inputs ?? [], ...(xargs ? { xargs } : {}), ...(runs ? { runs } : {}) });
   }
   return result;
 }
@@ -1420,7 +1434,7 @@ const dangerText = (t) => ghWriteText(t) || GH_ISSUE_WRITE.test(t) || (GITHUB_AP
 // Programs that run another program, now or later, in a way the hook does not read: refused outright.
 const HIDDEN_RUNNERS = new Set(['watch', 'parallel', 'sem', 'tmux', 'screen', 'byobu', 'zellij', 'dtach', 'abduco', 'entr', 'chronic', 'nq', 'at', 'batch', 'atq', 'systemd-run', 'firejail', 'bwrap', 'unshare', 'nsenter', 'chroot', 'pkexec', 'strace', 'ltrace', 'valgrind', 'rlwrap', 'expect', 'fakeroot', 'proot', 'gdb', 'sg', 'newgrp', 'crontab', 'inotifywait', 'fswatch', 'nodemon', 'chokidar', 'lefthook', 'husky']);
 // With such text in the command, only these may run, and the first four only without writing a file.
-const TEXT_SAFE = new Set(['echo', 'printf', 'cat', 'jq', 'gh', 'git', 'ls', 'grep', 'rg', 'head', 'tail', 'wc', 'test', '[', 'true', 'false', 'sort', 'uniq', 'cut', 'date', 'for', 'do', 'done', 'while', 'until', 'if', 'then', 'else', 'elif', 'fi', 'in', '{', '}', '!']);
+const TEXT_SAFE = new Set(['export', '#env', 'echo', 'printf', 'cat', 'jq', 'gh', 'git', 'ls', 'grep', 'rg', 'head', 'tail', 'wc', 'test', '[', 'true', 'false', 'sort', 'uniq', 'cut', 'date', 'for', 'do', 'done', 'while', 'until', 'if', 'then', 'else', 'elif', 'fi', 'in', '{', '}', '!']);
 const WRITES_FILE = (c) => (c.redirects ?? []).some((r) => r && !/^(\d+|-|\/dev\/(null|stdout|stderr))$/.test(r));
 // Where a path argument or redirect really points, from the command's own folder.
 const GUARDED_PATH = /(^|\/)\.git\/(hooks(\/|$)|config$|info\/attributes$)|(^|\/)\.gitconfig$|(^|\/)\.gitattributes$|\/\.config\/(gh|git)(\/|$)|(^|\/)\.claude\/settings(\.local)?\.json$|managed-settings\.json$|(^|\/)\.claude\.json$/;
@@ -1432,6 +1446,7 @@ const GUARDED_TAIL = /(^|[/}])(settings(\.local)?\.json|managed-settings\.json|\
 // abbreviated long options write files), which stay refused as on 990104a.
 const FIND_ACTS = /^-(exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/;
 function isReader(c) {
+  if (c.prog === 'export' || c.prog === '#env') return true; // they only set variables; stage 1 judges which
   if (READ_PROGS.has(c.prog)) return !(c.prog === 'node' && !/^\.?\/?\.claude\/hooks\/rules\.mjs$/.test(c.args[0] ?? ''));
   if (['cut', 'tr', 'basename', 'dirname'].includes(c.prog)) return true;
   if (c.prog === 'find') return !c.args.some((w) => FIND_ACTS.test(w));
@@ -1460,8 +1475,218 @@ function checkBashText(text, cmds, config, deny) {
   // PATH set on or before a call swaps which gh, git or curl runs.
   // PATH= in any spelling, an element (PATH[0]=), or a nameref to it (declare -n P=PATH): plan audit 2, R2.
   const pathSet = /(^|[\s;&|(`])(export\s+|declare\s+-x\s+|env\s+)?PATH(\[[^\]]*\])?\+?=/.test(text) || /(^|[\s;&|(){}`])(declare|typeset|local)\s+(-\w+\s+)*-\w*n[^;&|\n]*=\s*['"]?PATH\b/.test(text);
-  if ((pathSet || cmds.some(setsPath)) && cmds.some((c) => ['gh', 'git', 'curl', 'wget'].includes(c.prog) || scriptTool(c.prog))) { deny(refusal(ROUTE_RULE, 'PATH set in the same command as gh, git, curl or a script, which can swap the program that runs', 'run the command with the usual PATH')); return; }
+  // The parsed words too: PA''TH=/tmp and export PA''TH=/tmp read as PATH here, though the text does not (hook round 2, S1.3).
+  if ((pathSet || cmds.some((c) => setsPath(c) || Object.hasOwn(c.env ?? {}, 'PATH'))) && cmds.some((c) => ['gh', 'git', 'curl', 'wget'].includes(c.prog) || scriptTool(c.prog))) { deny(refusal(ROUTE_RULE, 'PATH set in the same command as gh, git, curl or a script, which can swap the program that runs', 'run the command with the usual PATH')); return; }
   if (cmds.some((c) => c.prog === 'hash' && c.args.includes('-p'))) deny(refusal(ROUTE_RULE, 'hash -p, which swaps the program a name runs', 'run the command with the usual PATH'));
+}
+// ---------- hook round 2, stage 1: a construct the hook cannot read is refused whole ----------
+
+const stage1 = (what, instead) => refusal(ROUTE_RULE, what, instead);
+// Names the hooks, git and gh depend on, and the ones that make a program load code the hook never reads.
+const HOOK_VARS = /^(PATH|GH_\w*|GITHUB_\w*|GIT_\w*|HOME|XDG_CONFIG_HOME|BASH_ENV|ENV|PS4|PROMPT_COMMAND|SHELLOPTS|BASHOPTS|CDPATH|BROWSER|PAGER|EDITOR|VISUAL|LD_PRELOAD|LD_LIBRARY_PATH|LD_AUDIT|GCONV_PATH|LESSOPEN|LESSCLOSE|NODE_OPTIONS|PYTHONPATH|PYTHONSTARTUP|PERL5OPT|PERL5LIB|RUBYOPT|BASH_FUNC_\w*)$/;
+const LOADS_CODE = /^(BASH_ENV|ENV|PS4|PROMPT_COMMAND|SHELLOPTS|BASHOPTS|CDPATH|BASH_FUNC_\w*|LD_PRELOAD|LD_LIBRARY_PATH|LD_AUDIT|GCONV_PATH|LESSOPEN|LESSCLOSE|NODE_OPTIONS|PYTHONPATH|PYTHONSTARTUP|PERL5OPT|PERL5LIB|RUBYOPT)$/;
+const READ_BY_GIT = /^(HOME|XDG_CONFIG_HOME|GH_CONFIG_DIR|GH_PAGER|GH_EDITOR|GH_BROWSER|BROWSER|PAGER|EDITOR|VISUAL)$/;
+const builtName = (n) => /[$`\\{}*?~]/.test(n);
+const nameOf = (w) => String(w).split('=')[0].replace(/\+$/, '').replace(/\[.*$/, '');
+// Operands of a builtin: its flags dropped, and the value of each flag in `valued` with them.
+const operandsOf = (a, valued) => { const out = []; for (let i = 0; i < a.length; i++) { if (a[i] === '--') { out.push(...a.slice(i + 1)); break; } if (a[i].startsWith('-') && a[i].length > 1) { if (valued?.test(a[i])) i++; continue; } out.push(a[i]); } return out; };
+// The variable names a command sets other than by a plain NAME=value word.
+function setterNames(c) {
+  const a = c.args;
+  switch (c.prog) {
+    case 'declare': case 'typeset': case 'local': case 'readonly': case 'export': {
+      const ref = a.some((w) => /^-[A-Za-z]*n/.test(w));
+      // A nameref with no value gets its target from a later plain assignment (declare -n R; R=PATH; R=x): refused too.
+      return operandsOf(a).flatMap((w) => [nameOf(w), ...(ref ? [w.includes('=') ? nameOf(w.slice(w.indexOf('=') + 1)) : '$nameref'] : [])]);
+    }
+    case 'read': return operandsOf(a, /^-[pdnNtui]$/).map(nameOf);
+    case 'mapfile': case 'readarray': return operandsOf(a, /^-[dnOsuCc]$/).map(nameOf);
+    case 'getopts': return operandsOf(a).slice(1, 2).map(nameOf);
+    case 'printf': { const out = []; for (let i = 0; i < a.length && a[i].startsWith('-'); i++) { if (a[i] === '-v') out.push(a[++i] ?? ''); else if (a[i].startsWith('-v')) out.push(a[i].slice(2)); } return out.map(nameOf); }
+    case 'let': return a.flatMap((w) => /^[\s"']*[$`]/.test(w) ? ['$built'] : [/^\s*([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*(?:[-+*/%&|^]|<<|>>)?=(?!=)/.exec(w)?.[1]].filter(Boolean));
+    case 'for': case 'select': return a[0] && !a[0].startsWith('((') ? [a[0]] : []; // the name is set with or without `in`
+    default: return [];
+  }
+}
+// trap text runs later; set -a exports every assignment; the other setters change a name the hook only reads as NAME=value.
+function checkSetters(cmds, deny) {
+  for (const c of cmds) {
+    if (c.prog === 'trap') {
+      const a = c.args;
+      if (a.length && !['-l', '-p', '-', ''].includes(a[0])) { deny(stage1('trap text, which runs later out of the hooks\' sight', 'run the commands in the foreground, one call at a time; trap - SIG and trap \'\' SIG stay allowed')); return true; }
+    }
+    if (c.prog === 'set') {
+      const hit = c.args.some((w, i) => /^-[A-Za-z]+$/.test(w) && (/[ak]/.test(w) || (w.endsWith('o') && /^(allexport|keyword)$/.test(c.args[i + 1] ?? ''))));
+      if (hit) { deny(stage1('set -a or set -k, which exports or reads variables the hook never sees', 'name each variable in front of the command (NAME=value cmd)')); return true; }
+    }
+    const plainExport = c.prog === 'export' && !c.args.some((w) => w.startsWith('-') && w !== '--');
+    for (const n of setterNames(c)) {
+      if (builtName(n)) { deny(stage1(`${c.prog} naming a variable the shell builds ("${n}"), which may be one the hooks depend on`, 'write the variable name out')); return true; }
+      if (HOOK_VARS.test(n) && !plainExport) { deny(stage1(`${c.prog} setting ${n}, a name the hooks depend on, in a way the hook does not read`, 'set it with a plain NAME=value word in front of the command, or leave it alone')); return true; }
+    }
+  }
+  return false;
+}
+// NAME=value words the hook reads: in front of a command, after export, or on a line of their own (#env).
+const plainSets = (cmds) => cmds.flatMap((c) => [
+  ...Object.entries(c.env ?? {}),
+  ...(c.prog === 'export' ? c.args.filter((w) => ENV_WORD.test(w)).map((w) => [w.slice(0, w.indexOf('=')), w.slice(w.indexOf('=') + 1)]) : []),
+]);
+function checkLoadedCode(cmds, deny) {
+  const sets = plainSets(cmds);
+  const loads = sets.find(([k]) => LOADS_CODE.test(k));
+  if (loads) { deny(stage1(`${loads[0]} set, which makes programs load code the hook never reads`, 'leave it as it is')); return true; }
+  if (!cmds.some((c) => c.prog === 'git' || c.prog === 'gh')) return false;
+  const reads = sets.find(([k, v]) => READ_BY_GIT.test(k) && !(/PAGER|EDITOR|VISUAL|BROWSER/.test(k) && /^(cat|true|less|more|)$/.test(String(v).trim())));
+  if (reads) { deny(stage1(`${reads[0]} set in a call that runs git or gh, which read config and programs from it`, 'leave it as it is')); return true; }
+  return false;
+}
+// Options that make a program run another program (the table in the plan, S1.6).
+const longName = (w) => (w.startsWith('--') ? w.slice(2).split('=')[0] : null);
+const abbrevOf = (w, fulls, min = 3) => { const n = longName(w); return n !== null && n.length >= min && fulls.some((f) => f.startsWith(n)); };
+const VALUED_AWK = /^(-F|-v|--assign|--field-separator)$/;
+function programOption(c) {
+  const a = c.args;
+  switch (c.prog) {
+    case 'sort': return a.find((w) => /^--c/.test(w));
+    case 'tar': return a.find((w, i) => (i === 0 && /^[A-Za-z]+$/.test(w) && /[IF]/.test(w)) || /^-[A-Za-z]*[IF]/.test(w) || (abbrevOf(w, ['use-compress-program', 'to-command', 'checkpoint-action', 'info-script', 'new-volume-script', 'rsh-command']) && longName(w) !== 'checkpoint'));
+    case 'rsync': return a.find((w) => /^-[A-Za-z]*e/.test(w) || abbrevOf(w, ['rsh', 'rsync-path']));
+    case 'zip': return a.find((w) => w.startsWith('-TT') || abbrevOf(w, ['unzip-command']));
+    case 'awk': case 'gawk': case 'mawk': case 'nawk': {
+      const flag = a.find((w) => /^-[fEli]/.test(w) || abbrevOf(w, ['file', 'exec', 'load', 'include']));
+      if (flag) return flag;
+      const text = operandsOf(a, VALUED_AWK)[0];
+      return text !== undefined && /system\s*\(|\||@(load|include)\b/.test(text) ? 'program text that runs a command' : undefined;
+    }
+    case 'ssh': case 'scp': case 'sftp': return a.find((w) => /^-[A-Za-z]*[oFS]/.test(w));
+    case 'vi': case 'vim': case 'nvim': case 'ex': case 'view': case 'vimdiff': return 'an editor';
+    default: return undefined;
+  }
+}
+function checkOptions(cmds, deny) {
+  for (const c of cmds) {
+    const opt = programOption(c);
+    if (opt !== undefined) { deny(stage1(`${c.prog} ${opt}, which runs another program`, 'run the program yourself, in a call of its own (grep -E replaces awk with a pipe in its text)')); return true; }
+  }
+  return false;
+}
+// The hook's own files and the folder of its first look: written only by Edit and Write in a hook pull request.
+const HOOKS_DIR = /(^|\/)\.claude\/hooks(\/|$)/;
+const lookDir = () => join(tmpdir(), 'automata-rule-hooks');
+const hookTarget = (cwd, t) => {
+  const r = realPath(cwd, t);
+  return HOOKS_DIR.test(r) || r === lookDir() || r.startsWith(lookDir() + '/') || (SUBST.test(t) && (HOOKS_DIR.test(t) || /(^|[/}])rules(\.test)?\.(mjs|json)$/.test(t)));
+};
+function writeTargets(c) {
+  const a = c.args;
+  const out = (c.redirects ?? []).filter((r) => r && !/^(\d+|-|\/dev\/(null|stdout|stderr))$/.test(r));
+  const ops = operandsOf(a, /^-[tSTZ]$/);
+  const into = flagValues(a, ['-t', '--target-directory'])[0];
+  switch (c.prog) {
+    case 'cp': case 'install': case 'ln': case 'rsync': out.push(...(into !== undefined ? [into] : ops.slice(-1))); break;
+    case 'mv': out.push(...ops, ...(into !== undefined ? [into] : [])); break;
+    case 'tee': case 'truncate': case 'touch': case 'rm': case 'unlink': case 'shred': out.push(...ops); break;
+    case 'dd': out.push(...a.filter((w) => w.startsWith('of=')).map((w) => w.slice(3))); break;
+    case 'tar': a.forEach((w, i) => { if (/^-[A-Za-z]*[Cf]$/.test(w) || w === '--directory' || w === '--file') { if (a[i + 1] !== undefined) out.push(a[i + 1]); } else if (/^--(directory|file)=/.test(w)) out.push(w.slice(w.indexOf('=') + 1)); else if (/^-C./.test(w)) out.push(w.slice(2)); }); break;
+    case 'sed': if (a.some((w) => /^-[A-Za-z]*i/.test(w) || w.startsWith('--in-place'))) out.push(...ops); break;
+    case 'patch': out.push(...operandsOf(a, /^-[pdioDFBrVYzg]$/), ...flagValues(a, ['-o'])); break;
+    default:
+  }
+  return out;
+}
+// What a pathspec restore from a tree-ish or --source other than HEAD or the index can bring over the hooks.
+function restoreHit(g) {
+  if (g.sub !== 'checkout' && g.sub !== 'restore') return null;
+  const w = g.rest, dd = w.indexOf('--'), head = dd === -1 ? w : w.slice(0, dd);
+  let paths, source = null;
+  if (g.sub === 'restore') {
+    if (head.some((x) => x === '--staged' || x === '-S') && !head.some((x) => x === '--worktree' || x === '-W')) return null;
+    paths = [];
+    for (let i = 0; i < head.length; i++) { const x = head[i]; if (x === '-s' || x === '--source') source = head[++i]; else if (x.startsWith('--source=')) source = x.slice(9); else if (!x.startsWith('-')) paths.push(x); }
+    if (dd !== -1) paths.push(...w.slice(dd + 1));
+  } else {
+    if (head.some((x) => /^(-b|-B|-c|-C|--orphan(=.*)?)$/.test(x))) return null;
+    const words = head.filter((x) => !x.startsWith('-'));
+    if (dd !== -1) { source = words[0] ?? null; paths = w.slice(dd + 1); } else if (words.length >= 2) { source = words[0]; paths = words.slice(1); } else return null;
+  }
+  const other = source !== null && source !== 'HEAD';
+  for (const p of paths) {
+    const r = realPath(g.cwd, p);
+    if (HOOKS_DIR.test(p) || HOOKS_DIR.test(r)) return p;
+    if (!other) continue;
+    const top = repoTop(g.cwd);
+    if (/[*?[]/.test(p) || /^:[(/]/.test(p) || (top && (join(top, '.claude', 'hooks') + '/').startsWith(r.replace(/\/$/, '') + '/'))) return p;
+  }
+  return null;
+}
+const diffNames = (text) => lines(text).flatMap((l) => {
+  const g = /^diff --git (\S+) (\S+)/.exec(l);
+  const m = /^(?:---|\+\+\+) (\S+)/.exec(l) ?? /^(?:Index:|rename from|rename to|copy from|copy to) (.+)/.exec(l);
+  return g ? [g[1], g[2]] : m ? [m[1].replace(/^"|"$/g, '')] : [];
+});
+// patch, git apply and git am write the files their diff names: read the diff before the call, or refuse.
+function patchProblem(c) {
+  const g = c.prog === 'git' ? gitParts(c) : null;
+  if (g ? !['apply', 'am'].includes(g.sub) : c.prog !== 'patch') return null;
+  const a = g ? g.rest : c.args, cwd = g ? g.cwd : c.cwd;
+  if (g?.sub === 'am' && a.some((w) => /^(--(continue|abort|skip|quit|resolved|show-current-patch)|-r)$/.test(w))) return null;
+  const ops = operandsOf(a, g ? /^(-p|-C|--directory|--include|--exclude|--whitespace)$/ : /^-[pdioDFBrVYzg]$/);
+  const files = g ? ops : [...flagValues(a, ['-i', '--input']), ...ops.slice(1)];
+  const texts = [];
+  let unread = false;
+  if (c.heredoc !== null && c.heredoc !== undefined) texts.push(c.heredoc);
+  for (const f of [...files, ...(c.inputs ?? []).filter((x) => x && !/^&?\d+$/.test(x))]) { const t = f === '-' ? null : readText(realPath(cwd, f)); if (t === null) unread = true; else texts.push(t); }
+  if (unread || !texts.length) return `${g ? 'git ' + g.sub : 'patch'} with a diff the hook cannot read before the call (a pipe, or a file that is not there yet)`;
+  const named = [...diffNames(texts.join('\n')), ...a, cwd].find((n) => HOOKS_DIR.test(n) || HOOKS_DIR.test(realPath(cwd, n)));
+  return named === undefined ? null : `${g ? 'git ' + g.sub : 'patch'} of ${named}, which is under the rule hooks' folder`;
+}
+// A path that is the hooks' folder or a folder above it, in the repo the call runs in: removing or moving it takes the hooks along.
+const aboveHooks = (cwd, p) => { const top = repoTop(cwd); return !!top && (join(top, '.claude', 'hooks') + '/').startsWith(realPath(cwd, p).replace(/\/$/, '') + '/'); };
+// rm, mv and cp over .claude or a folder above it, and git rm and git mv of the hooks (audit 1, reds 4 and 5).
+function folderHit(c, g) {
+  if (g) {
+    if (g.sub !== 'rm' && g.sub !== 'mv') return null;
+    if (g.sub === 'rm' && hasFlag(g.rest, ['--cached'])) return null;
+    return operandsOf(g.rest).find((p) => HOOKS_DIR.test(p) || /[*?[]/.test(p) || aboveHooks(g.cwd, p)) ?? null;
+  }
+  const ops = operandsOf(c.args, /^-[tSTZ]$/);
+  if (['rm', 'rmdir', 'unlink', 'shred'].includes(c.prog)) return ops.find((p) => aboveHooks(c.cwd, p)) ?? null;
+  if (!['cp', 'mv', 'install', 'ln', 'rsync'].includes(c.prog)) return null;
+  const hit = c.prog === 'mv' ? ops.find((p) => aboveHooks(c.cwd, p)) : undefined;
+  if (hit !== undefined) return hit;
+  const into = flagValues(c.args, ['-t', '--target-directory'])[0];
+  const dest = into ?? ops.at(-1);
+  if (dest === undefined) return null;
+  const sources = into !== undefined ? ops : ops.slice(0, -1);
+  const top = repoTop(c.cwd);
+  if (!top) return null;
+  const isClaude = realPath(c.cwd, dest).replace(/\/$/, '') === join(top, '.claude');
+  return isClaude || (aboveHooks(c.cwd, dest) && sources.some((s) => s.replace(/\/+$/, '').split('/').at(-1) === '.claude')) ? dest : null;
+}
+function checkHookWrites(cmds, deny) {
+  const instead = 'change the hooks with the Edit or Write tool in a hook pull request, and list anything else as a command for the owner';
+  for (const c of cmds) {
+    const bad = writeTargets(c).find((t) => hookTarget(c.cwd, t));
+    const g = c.prog === 'git' ? gitParts(c) : null;
+    const hit = bad ?? (g ? restoreHit(g) : null) ?? folderHit(c, g);
+    const why = hit != null ? `${c.prog} writing ${hit}, one of the rule hooks' own files (or the folder of their first look)` : patchProblem(c);
+    if (why) { deny(stage1(why, instead)); return true; }
+  }
+  return false;
+}
+// ${NAME:=x} and ${NAME=x} set NAME when it is unset or empty: a setter, whatever command holds it (audit 2).
+function checkDefaultSetters(text, deny) {
+  const hit = [...text.matchAll(/\$\{\s*([A-Za-z_]\w*)(?:\[[^\]]*\])?:?=/g)].find((m) => HOOK_VARS.test(m[1]));
+  // ${!x:=v} sets the variable x names, which cannot be known: refused for any x.
+  const indirect = /\$\{\s*![^}=]*:?=/.test(text);
+  if (indirect) { deny(stage1('${!NAME:=...}, which sets a variable the hook cannot name', 'set it with a plain NAME=value word in front of the command, or leave it alone')); return true; }
+  if (hit) { deny(stage1(`\${${hit[1]}:=...}, which sets ${hit[1]}, a name the hooks depend on, in a way the hook does not read`, 'set it with a plain NAME=value word in front of the command, or leave it alone')); return true; }
+  return false;
+}
+function checkStage1(text, cmds, config, deny) {
+  if (config.routes?.enabled === false) return;
+  if (checkDefaultSetters(text, deny)) return;
+  [checkSetters, checkLoadedCode, checkOptions, checkHookWrites].some((check) => check(cmds, deny));
 }
 // Words a CI watch loop needs that run nothing.
 const LOOP_SAFE = new Set(['sleep', 'break', 'continue']);
@@ -1490,7 +1715,7 @@ function checkMixedText(text, cmds, config, deny) {
 // git runs other programs through these settings (a pager, an editor, a hook folder, a filter, an alias,
 // ssh), so only the ones that run nothing may be set with -c, git config or GIT_* variables.
 const GIT_SAFE_KEY = /^(user\.(name|email|signingkey)|color\.[\w.]+|advice\.\w+|core\.(quotepath|autocrlf|safecrlf|abbrev|filemode|ignorecase|longpaths|precomposeunicode|untrackedcache|bare|logallrefupdates|repositoryformatversion)|init\.defaultbranch|push\.(default|autosetupremote|negotiate|followtags)|pull\.(rebase|ff)|fetch\.(prune|negotiationalgorithm)|commit\.gpgsign|tag\.gpgsign|safe\.directory|http\.[\w.]+|protocol\.version|gc\.auto\w*|maintenance\.auto|log\.\w+|diff\.(renames|algorithm|noprefix|mnemonicprefix|context|interhunkcontext)|merge\.(ff|conflictstyle|renamelimit)|rebase\.(autostash|autosquash|updaterefs)|status\.\w+|branch\.[^.]+\.(remote|merge|rebase)|remote\.[^.]+\.(url|fetch|pushurl|prune)|submodule\.[^.]+\.(url|path|branch)|feature\.\w+|index\.\w+|pack\.\w+|transfer\.\w+|uploadpack\.allowfilter|credential\.usehttppath|i18n\.\w+|blame\.\w+|grep\.\w+|rerere\.\w+)$/i;
-const GIT_ENV_RUNS = /^(GIT_CONFIG\w*|GIT_\w*PAGER|PAGER|GIT_EDITOR|GIT_SEQUENCE_EDITOR|EDITOR|VISUAL|GIT_SSH\w*|GIT_EXEC_PATH|GIT_ASKPASS|SSH_ASKPASS|GIT_EXTERNAL_DIFF|GIT_TEMPLATE_DIR|GIT_PROXY_COMMAND)$/;
+const GIT_ENV_RUNS = /^(GIT_CONFIG\w*|GIT_\w*PAGER|PAGER|GIT_EDITOR|GIT_SEQUENCE_EDITOR|EDITOR|VISUAL|GIT_SSH\w*|GIT_EXEC_PATH|GIT_ASKPASS|SSH_ASKPASS|GIT_EXTERNAL_DIFF|GIT_TEMPLATE_DIR|GIT_PROXY_COMMAND|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR|GIT_INDEX_FILE)$/;
 const GIT_KNOWN = new Set(['add', 'am', 'annotate', 'apply', 'archive', 'bisect', 'blame', 'branch', 'bundle', 'cat-file', 'check-attr', 'check-ignore', 'check-mailmap', 'check-ref-format', 'checkout', 'cherry', 'cherry-pick', 'citool', 'clean', 'clone', 'commit', 'commit-tree', 'config', 'count-objects', 'describe', 'diff', 'diff-files', 'diff-index', 'diff-tree', 'difftool', 'fetch', 'for-each-ref', 'format-patch', 'fsck', 'gc', 'grep', 'hash-object', 'help', 'init', 'log', 'ls-files', 'ls-remote', 'ls-tree', 'maintenance', 'merge', 'merge-base', 'merge-file', 'merge-tree', 'mergetool', 'mv', 'name-rev', 'notes', 'pull', 'push', 'range-diff', 'read-tree', 'rebase', 'reflog', 'remote', 'repack', 'replace', 'rerere', 'reset', 'restore', 'rev-list', 'rev-parse', 'revert', 'rm', 'shortlog', 'show', 'show-branch', 'show-ref', 'sparse-checkout', 'stash', 'status', 'submodule', 'switch', 'symbolic-ref', 'tag', 'update-index', 'update-ref', 'var', 'verify-commit', 'verify-tag', 'version', 'whatchanged', 'worktree', 'write-tree', 'lfs', 'mktree', 'prune', 'unpack-objects', 'verify-pack', 'mailinfo', 'apply', 'bugreport', 'fast-export', 'fast-import', 'filter-branch', 'request-pull', 'send-email', 'instaweb', 'gui', 'gitk', 'scalar', 'backfill', 'last-modified', 'repo', 'refs', '--version', '--help', '-h', undefined]);
 function checkGitRuns(cmd, config, deny) {
   if (config.routes?.enabled === false || cmd.prog !== 'git') return;
@@ -1500,6 +1725,14 @@ function checkGitRuns(cmd, config, deny) {
   if (cmd.args.some((a) => a === '--config-env' || a.startsWith('--config-env=') || a === '--exec-path' || a.startsWith('--exec-path='))) { deny(refusal(ROUTE_RULE, 'git --config-env or --exec-path, which can make git run another program', 'run the git command without it')); return; }
   const envKey = Object.keys(cmd.env ?? {}).find((k) => GIT_ENV_RUNS.test(k) && !/^(cat|true|less|more|)$/.test(String(cmd.env[k]).trim()));
   if (envKey) { deny(refusal(ROUTE_RULE, `${envKey} set for git, which can make it run another program`, 'run the git command without it')); return; }
+  // Another repo's hooks and config (--git-dir, --work-tree), a template, a clone's own config, a submodule's own hooks (hook round 2, S1.10 to S1.12).
+  if (cmd.args.some((a) => /^--(git-dir|work-tree)(=|$)/.test(a))) { deny(refusal(ROUTE_RULE, 'git --git-dir or --work-tree, which point git at another repo whose hooks and config the hook does not read', 'run git with -C and a written-out folder')); return; }
+  if (g.sub === 'submodule' || cmd.args.some((a) => abbrevOf(a, ['recurse-submodules', 'recursive']))) { deny(refusal(ROUTE_RULE, 'git submodule or --recurse-submodules, whose own hooks and config the hook does not read', 'no repo here has submodules; leave them out')); return; }
+  if (g.sub === 'clone' || g.sub === 'init') {
+    if (g.rest.some((a) => abbrevOf(a, ['template']))) { deny(refusal(ROUTE_RULE, `git ${g.sub} --template, which copies hooks and config into the new repo`, `run git ${g.sub} without it`)); return; }
+    const badKey = g.sub === 'clone' ? g.rest.flatMap((a, i) => (a === '-c' || a === '--config' ? [g.rest[i + 1] ?? ''] : /^--config=/.test(a) ? [a.slice(9)] : /^-c./.test(a) ? [a.slice(2)] : abbrevOf(a, ['config']) ? [a.slice(a.indexOf('=') + 1)] : [])).find((kv) => !GIT_SAFE_KEY.test(kv.split('=')[0])) : undefined;
+    if (badKey !== undefined) { deny(refusal(ROUTE_RULE, `git clone -c ${badKey.split('=')[0]}, a setting that can make git run another program`, 'clone without it, then set a safe key with git config')); return; }
+  }
   if (!GIT_KNOWN.has(g.sub)) { deny(refusal(ROUTE_RULE, `git ${g.sub} (an alias or an add-on the hooks cannot read)`, 'run the git command it stands for')); return; }
   if (g.sub === 'config' && !hasFlag(g.rest, ['--get', '--get-all', '--list', '-l', '--get-regexp', '--show-origin', '--show-scope', '--get-urlmatch', '--unset', '--unset-all', '--name-only'])) {
     const words = []; for (let i = 0; i < g.rest.length; i++) { const w = g.rest[i]; if (/^(--file|-f|--blob|--type|--default|--comment)$/.test(w)) { i++; continue; } if (!w.startsWith('-')) words.push(w); }
@@ -1530,7 +1763,7 @@ function checkMakefile(cmd, config, deny) {
 }
 // A script file is read from disk before the call, so a call that also writes it would run text the hook
 // never read. Writing and running one script in the same call is refused, whichever comes first.
-const WRITES_NOTHING = new Set(['cat', 'head', 'tail', 'less', 'grep', 'rg', 'wc', 'ls', 'stat', 'file', 'diff', 'cmp', 'sha256sum', 'md5sum', 'realpath', 'readlink', 'test', '[', 'echo', 'printf', 'chmod', 'touch', 'mkdir', 'true', 'kill', 'pkill', 'pgrep', 'killall']);
+const WRITES_NOTHING = new Set(['export', '#env', 'cat', 'head', 'tail', 'less', 'grep', 'rg', 'wc', 'ls', 'stat', 'file', 'diff', 'cmp', 'sha256sum', 'md5sum', 'realpath', 'readlink', 'test', '[', 'echo', 'printf', 'chmod', 'touch', 'mkdir', 'true', 'kill', 'pkill', 'pgrep', 'killall']);
 // git checkout -b <new> and git switch -c <new>, with no start point or path, make a branch at HEAD and change no
 // working file (finding 3).
 const gitNewBranchOnly = (g) => {
@@ -1578,6 +1811,16 @@ function checkWrittenScripts(cmds, config, deny) {
     }
   }
 }
+// settings.json registers rules.mjs on each launch event, the matcher covering the tools LAUNCH_EVENTS names (S1.8).
+function keepsHooks(text) {
+  let settings;
+  try { settings = JSON.parse(text); } catch { return false; }
+  const covers = (have, want) => {
+    if (want === null || have === undefined || have === '' || have === '*') return true;
+    try { const re = new RegExp(`^(?:${have})$`); return want.split('|').every((name) => re.test(name.replace('mcp__.*', 'mcp__x'))); } catch { return false; }
+  };
+  return LAUNCH_EVENTS.every(([event, want]) => (settings?.hooks?.[event] ?? []).some((e) => covers(e?.matcher, want) && (e?.hooks ?? []).some((h) => /hooks\/rules\.mjs/.test(String(h?.command ?? '')))));
+}
 // Write, Edit and MultiEdit: no file that runs later may carry a gh write, and nothing may switch the hooks off.
 const RUNS_LATER = /(^|\/)(GNUmakefile|[Mm]akefile|justfile|Justfile|Taskfile\.ya?ml|Rakefile|package\.json|Dockerfile)$|\.(mk|sh|bash|zsh|ksh|fish|m?[jt]sx?|cjs|cts|mts|py|rb|pl|php|lua|ps1|bat|cmd)$|(^|\/)\.git\/hooks\/|(^|\/)bin\/[^/.]+$/;
 function checkWriteRoutes(input, config, root, deny) {
@@ -1593,7 +1836,7 @@ function checkWriteRoutes(input, config, root, deny) {
   if (/(^|\/)\.claude\/hooks\/rules(\.test)?\.mjs$/.test(path)) return;
   const note = /\.(md|mdx|txt)$/i.test(path);
   if (HOOKS_OFF.test(added) && !note) { deny(refusal(ROUTE_RULE, `${path} gains disableAllHooks or core.hooksPath`, 'leave the hooks on')); return; }
-  if (/(^|\/)\.claude\/settings\.json$/.test(path) && t && /\.claude\/hooks\/rules\.mjs/.test(t.before ?? '') && !/\.claude\/hooks\/rules\.mjs/.test(t.after ?? '')) { deny(refusal(ROUTE_RULE, `${path} loses the rule hooks`, 'keep the rules.mjs hook lines')); return; }
+  if (/(^|\/)\.claude\/settings\.json$/.test(path) && t && !keepsHooks(t.after)) { deny(refusal(ROUTE_RULE, `${path} would not register the rule hooks (rules.mjs) on each of SessionStart, PreToolUse, PostToolUse and Stop`, 'keep the four rules.mjs hook entries; list any other change to the hooks as a command for the owner')); return; }
   if ((RUNS_LATER.test(path) || /^#!/.test(String(t?.after ?? input.content ?? ''))) && dangerText(added)) deny(refusal(ROUTE_RULE, `${path} would carry a gh or GitHub API write that runs later, out of the hooks' sight`, 'run the gh command in Bash, where the hooks read it; quote gh commands only in .md or .txt notes'));
 }
 // True when every URL an HTTP tool call names can be read and none is GitHub's API: no config file
@@ -1933,6 +2176,7 @@ function preToolUse(root, config, input, ctx) {
     const cmds = simpleCommands(String(ti.command ?? ''), input.cwd ?? root);
     checkBashText(String(ti.command ?? ''), cmds, base, deny);
     if (!reasons.length) checkWrittenScripts(cmds, base, deny);
+    if (!reasons.length) checkStage1(String(ti.command ?? ''), cmds, base, deny);
     for (const cmd of reasons.length ? [] : cmds) {
       checkOtherRoutes(cmd, base, deny, { ...ctx, root });
       if (!reasons.length) checkGitRuns(cmd, base, deny);
