@@ -6,7 +6,7 @@ import { readPicture } from './png.ts'
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
-const ADDRESS = 'https://automataframework.pages.dev/'
+const ADDRESS = 'https://automataframework.com/'
 const DESCRIPTION =
   'Automata Framework is a toolkit for making 2D games that play in a web browser. It is still being built. Play the first game made with it.'
 
@@ -30,6 +30,8 @@ test("the game's picture, the share picture and the icons are the site's own fil
     ['/share.png', 'image/png'],
     ['/apple-touch-icon.png', 'image/png'],
     ['/icon.svg', 'image/svg+xml'],
+    ['/touch-icon.svg', 'image/svg+xml'],
+    ['/favicon.ico', 'icon'],
   ] as const) {
     const response = await request.get(address)
     expect(response.status(), address).toBe(200)
@@ -38,6 +40,22 @@ test("the game's picture, the share picture and the icons are the site's own fil
   expect(await sizeOf(page, '/game.png')).toEqual([2560, 1440])
   expect(await sizeOf(page, '/share.png')).toEqual([1200, 630])
   expect(await sizeOf(page, '/apple-touch-icon.png')).toEqual([180, 180])
+})
+
+// A browser that cannot show /icon.svg asks for /favicon.ico on its own: it holds the tab icon at 16, 32 and 48 px.
+test('favicon.ico holds the tab icon at three sizes', async ({ request }) => {
+  const ico = await (await request.get('/favicon.ico')).body()
+  expect([ico.readUInt16LE(2), ico.readUInt16LE(4)]).toEqual([1, 3])
+  const sizes = [0, 1, 2].map((i) => ico.readUInt8(6 + 16 * i))
+  expect(sizes).toEqual([16, 32, 48])
+  for (const i of [0, 1, 2]) {
+    const offset = ico.readUInt32LE(6 + 16 * i + 12)
+    const length = ico.readUInt32LE(6 + 16 * i + 8)
+    const picture = readPicture(ico.subarray(offset, offset + length))
+    expect([picture.width, picture.height]).toEqual([sizes[i], sizes[i]])
+    // The ground and the cream, and the soft edge between them: never one flat colour.
+    expect(picture.colours).toBeGreaterThan(2)
+  }
 })
 
 // Read from the file's own bytes in Node, not drawn on a canvas in the browser: a browser short of memory may hand back an

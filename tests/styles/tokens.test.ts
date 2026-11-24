@@ -1,7 +1,7 @@
 // The stylesheet's colours, read as text: they are palette No. 325's four and the two shades mixed from them, and no
 // others; dark is the only theme, and the pairs the page puts together are readable. A browser draws the rest; the
 // journeys measure that.
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { expect, test } from 'vitest'
 import { contrast } from '../fixtures/contrast.ts'
 
@@ -101,14 +101,11 @@ test.each(['index.html', '404.html'])(
   },
 )
 
-// The tab icon is a square in the touch colour. Task 5 adds the file; until then there is nothing to read.
-test.skipIf(!existsSync(new URL('../../public/icon.svg', import.meta.url)))(
-  'the tab icon names the touch colour and no other',
-  () => {
-    const svg = readFileSync(new URL('../../public/icon.svg', import.meta.url), 'utf8')
-    expect(svg.match(/#[0-9a-fA-F]{6}\b/gi)?.map((c) => c.toUpperCase())).toEqual([BOOK.touch])
-  },
-)
+// The icons are the wordmark: its cream (words) on the ground, and no other colour (the Owner, 2026-11-24).
+test.each(['icon.svg', 'touch-icon.svg'])('%s names the ground and the words colour and no other', (file) => {
+  const svg = readFileSync(new URL(`../../public/${file}`, import.meta.url), 'utf8')
+  expect(svg.match(/#[0-9a-fA-F]{6}\b/gi)?.map((c) => c.toUpperCase())).toEqual([BOOK.ground, BOOK.words])
+})
 
 test('corners are 2 px', () => {
   expect(css.match(/border-radius:\s*([^;]+);/g)?.every((line) => line.includes('var(--corner)'))).toBe(true)

@@ -1,10 +1,12 @@
-// The three pictures of the built site that cannot be written by hand: the game's own picture (shown on its sheet
-// before Play), the picture a shared link shows, and the touch icon. The build opens the built site in Chromium once and
+// The pictures of the built site that cannot be written by hand: the game's own picture (shown on its sheet before
+// Play), the picture a shared link shows, the touch icon and `/favicon.ico`. The build opens the built site in Chromium once and
 // saves them, so they are always the site as it is, never a file somebody drew and forgot.
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { type IconPng, packIco } from './ico.ts'
 import { serveFolder } from './serve.ts'
 
+export { packIco } from './ico.ts'
 export { serveFolder } from './serve.ts'
 
 /** A failure with a plain sentence, ready to print in a build. */
@@ -40,8 +42,19 @@ export const PICTURES: readonly Picture[] = [
     first: { screen: '#game[data-state="picking"]', press: '.automata-picker-go' },
   },
   { file: 'share.png', address: '/', width: 1200, height: 630, scale: 1, ready: 'h1', as: 'share' },
-  { file: 'apple-touch-icon.png', address: '/icon.svg', width: 180, height: 180, scale: 1, ready: 'svg' },
+  // A phone's home screen has room for the whole word; a browser tab (`/icon.svg`, `/favicon.ico`) has room for its "a".
+  {
+    file: 'apple-touch-icon.png',
+    address: '/touch-icon.svg',
+    width: 180,
+    height: 180,
+    scale: 1,
+    ready: 'svg',
+  },
 ]
+
+/** `/favicon.ico` holds the tab icon at the sizes a browser asks an ICO for: a tab, a high-density tab, a shortcut. */
+export const FAVICON = { file: 'favicon.ico', address: '/icon.svg', sizes: [16, 32, 48] } as const
 
 const MISSING_BROWSER = 'Chromium is not installed for Playwright. Run: pnpm exec playwright install chromium'
 /** How long a game may take to say it is playing, and how long a picture may take to hold still. */
@@ -150,6 +163,22 @@ export async function takePictures(options: {
           await context.close()
         }
       }
+      const pngs: IconPng[] = []
+      for (const size of FAVICON.sizes) {
+        const context = await browser.newContext({
+          viewport: { width: size, height: size },
+          deviceScaleFactor: 1,
+        })
+        try {
+          const page = await context.newPage()
+          await page.goto(`${server.url}${FAVICON.address}`)
+          await page.waitForSelector('svg', { timeout: READY_MS })
+          pngs.push({ size, png: await settled(page, FAVICON.file, SITE_SETTLE_MS, false) })
+        } finally {
+          await context.close()
+        }
+      }
+      writeFileSync(join(options.siteDir, FAVICON.file), packIco(pngs))
     } finally {
       await browser.close()
     }
