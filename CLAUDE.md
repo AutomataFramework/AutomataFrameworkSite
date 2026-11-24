@@ -2,7 +2,7 @@
 
 The website of Automata Framework, a framework and set of editors for making games, where agents do the
 authoring and every piece of authorable content can be edited on an iPad. It is static on Cloudflare Pages
-at https://automataframework.pages.dev, and every merge to `main` deploys it.
+at https://automataframework.com, and every merge to `main` deploys it.
 
 This codebase is yours to keep building on. How it is built is your call, inside the rules below. What it is for, and anything new, is the owner's call.
 
