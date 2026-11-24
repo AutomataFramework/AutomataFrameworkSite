@@ -1045,7 +1045,16 @@ function checkPrBodyBash(cmd, config, deny) {
 // that is not only docs, a draft until the lane's reviews are done, an open-PR limit,
 // and, for lane 2 and 3, a passing review that names the head commit before ready or merge.
 const LANE = /\blane\s*([123])\b/gi;
-const laneOf = (body) => { const all = [...String(body ?? '').matchAll(LANE)].map((m) => Number(m[1])); return all.length ? Math.max(...all) : null; }; // the highest lane named wins
+// A "## Lane" heading's section, up to the next heading; null when the body has none (spec 2026-11-24, finding 9).
+const laneSection = (text) => {
+  const rows = text.split('\n');
+  const k = rows.findIndex((r) => /^#{1,6}\s*lane\b/i.test(r.trim()));
+  if (k === -1) return null;
+  const end = rows.findIndex((r, j) => j > k && /^#{1,6}\s/.test(r.trim()));
+  return rows.slice(k, end === -1 ? undefined : end).join('\n');
+};
+// The highest lane named wins: inside the Lane section when the body has one, else anywhere in it.
+const laneOf = (body) => { const text = String(body ?? ''); const all = [...(laneSection(text) ?? text).matchAll(LANE)].map((m) => Number(m[1])); return all.length ? Math.max(...all) : null; };
 // A verdict is a comment or review whose first line starts with a commit (7+ hex
 // characters) followed by PASS or FAIL, e.g. "79ef366 FAIL: 5 red" or "**abc1234 PASS**".
 function verdicts(items, f) {
@@ -1416,19 +1425,42 @@ const WRITES_FILE = (c) => (c.redirects ?? []).some((r) => r && !/^(\d+|-|\/dev\
 // Where a path argument or redirect really points, from the command's own folder.
 const GUARDED_PATH = /(^|\/)\.git\/(hooks(\/|$)|config$|info\/attributes$)|(^|\/)\.gitconfig$|(^|\/)\.gitattributes$|\/\.config\/(gh|git)(\/|$)|(^|\/)\.claude\/settings(\.local)?\.json$|managed-settings\.json$|(^|\/)\.claude\.json$/;
 const realPath = (cwd, p) => resolve(cwd, String(p).replace(/^~(?=\/|$)/, process.env.HOME ?? '~'));
+// A word the shell fills in that still names a guarded file (finding 10): refused like the file itself.
+const GUARDED_TAIL = /(^|[/}])(settings(\.local)?\.json|managed-settings\.json|\.claude\.json|\.gitconfig|\.gitattributes)$|\.git\/(hooks|config|info\/attributes)|\.config\/(gh|git)\//;
+// A command that reads and writes no file (finding 6): today's READ_PROGS, plus cut, tr, basename, dirname, and find
+// with no action that runs, prints to a file or deletes. Not sort or uniq (plan audit 8: `uniq - FILE` and sort's
+// abbreviated long options write files), which stay refused as on 990104a.
+const FIND_ACTS = /^-(exec|execdir|ok|okdir|delete|fprint|fprint0|fprintf|fls)$/;
+function isReader(c) {
+  if (READ_PROGS.has(c.prog)) return !(c.prog === 'node' && !/^\.?\/?\.claude\/hooks\/rules\.mjs$/.test(c.args[0] ?? ''));
+  if (['cut', 'tr', 'basename', 'dirname'].includes(c.prog)) return true;
+  if (c.prog === 'find') return !c.args.some((w) => FIND_ACTS.test(w));
+  return false;
+}
+// Commands that set PATH without writing PATH= (finding 11).
+const PATH_SETTERS = new Set(['read', 'mapfile', 'readarray', 'getopts', 'declare', 'typeset', 'local', 'readonly', 'export', 'unset']);
+const setsPath = (c) => (c.prog === 'printf' && c.args.some((w, k) => w === '-vPATH' || (w === '-v' && c.args[k + 1] === 'PATH')))
+  || (PATH_SETTERS.has(c.prog) && c.args.some((w) => w === 'PATH' || /^PATH\+?=/.test(w)))
+  // Plan audit 4, N1: a name the shell builds (declare "$A=…", "\${A}TH=…", printf -v "$A") may be PATH.
+  || (PATH_SETTERS.has(c.prog) && c.args.some((w) => /[$`]/.test(w.split('=')[0])))
+  || (c.prog === 'printf' && c.args.some((w, k) => /^-v.*[$`]/.test(w) || (w === '-v' && /[$`]/.test(c.args[k + 1] ?? ''))));
 function checkBashText(text, cmds, config, deny) {
   if (config.routes?.enabled === false) return;
   if (HOOKS_OFF.test(text)) { deny(refusal(ROUTE_RULE, 'a command that names disableAllHooks or core.hooksPath, which switch hooks off or swap them', 'leave the hooks as they are')); return; }
   const runner = cmds.find((c) => HIDDEN_RUNNERS.has(c.prog));
   if (runner) { deny(refusal(ROUTE_RULE, `${runner.prog}, which runs another program out of the hooks' sight`, 'run the command itself, in the foreground')); return; }
+  // A word names a guarded file when it does as written, or when a part the shell fills in leaves a guarded file's
+  // name at its end (finding 10).
+  const guarded = (cwd, w) => GUARDED_PATH.test(realPath(cwd, w)) || (SUBST.test(w) && GUARDED_TAIL.test(w));
   const touched = cmds.find((c) => {
-    const reader = READ_PROGS.has(c.prog) && !(c.prog === 'node' && !/^\.?\/?\.claude\/hooks\/rules\.mjs$/.test(c.args[0] ?? ''));
-    if ((c.redirects ?? []).some((r) => r && GUARDED_PATH.test(realPath(c.cwd, r)))) return true;
-    return !reader && c.args.some((a) => { const v = a.startsWith('-') ? a.split('=').slice(1).join('=') : a; return v && GUARDED_PATH.test(realPath(c.cwd, v)); });
+    if ((c.redirects ?? []).some((r) => r && guarded(c.cwd, r))) return true;
+    return !isReader(c) && c.args.some((a) => { const v = a.startsWith('-') ? a.split('=').slice(1).join('=') : a; return v && guarded(c.cwd, v); });
   });
-  if (touched || (GUARDED_FILE.test(text) && (GUARDED_REDIRECT.test(text) || cmds.some((c) => !READ_PROGS.has(c.prog) || (c.prog === 'node' && !/^\.?\/?\.claude\/hooks\/rules\.mjs$/.test(c.args[0] ?? '')))))) { deny(refusal(ROUTE_RULE, 'a command that touches git hooks, git or gh config, or Claude Code settings, which can run programs later or switch the hooks off', 'leave those files as they are; list a change to them as a command for the owner')); return; }
+  if (touched || (GUARDED_FILE.test(text) && (GUARDED_REDIRECT.test(text) || cmds.some((c) => !isReader(c))))) { deny(refusal(ROUTE_RULE, 'a command that touches git hooks, git or gh config, or Claude Code settings, which can run programs later or switch the hooks off', 'leave those files as they are; list a change to them as a command for the owner')); return; }
   // PATH set on or before a call swaps which gh, git or curl runs.
-  if (/(^|[\s;&|(`])(export\s+|declare\s+-x\s+|env\s+)?PATH\+?=/.test(text) && cmds.some((c) => ['gh', 'git', 'curl', 'wget'].includes(c.prog) || scriptTool(c.prog))) { deny(refusal(ROUTE_RULE, 'PATH set in the same command as gh, git, curl or a script, which can swap the program that runs', 'run the command with the usual PATH')); return; }
+  // PATH= in any spelling, an element (PATH[0]=), or a nameref to it (declare -n P=PATH): plan audit 2, R2.
+  const pathSet = /(^|[\s;&|(`])(export\s+|declare\s+-x\s+|env\s+)?PATH(\[[^\]]*\])?\+?=/.test(text) || /(^|[\s;&|(){}`])(declare|typeset|local)\s+(-\w+\s+)*-\w*n[^;&|\n]*=\s*['"]?PATH\b/.test(text);
+  if ((pathSet || cmds.some(setsPath)) && cmds.some((c) => ['gh', 'git', 'curl', 'wget'].includes(c.prog) || scriptTool(c.prog))) { deny(refusal(ROUTE_RULE, 'PATH set in the same command as gh, git, curl or a script, which can swap the program that runs', 'run the command with the usual PATH')); return; }
   if (cmds.some((c) => c.prog === 'hash' && c.args.includes('-p'))) deny(refusal(ROUTE_RULE, 'hash -p, which swaps the program a name runs', 'run the command with the usual PATH'));
 }
 // Words a CI watch loop needs that run nothing.
@@ -1498,7 +1530,20 @@ function checkMakefile(cmd, config, deny) {
 }
 // A script file is read from disk before the call, so a call that also writes it would run text the hook
 // never read. Writing and running one script in the same call is refused, whichever comes first.
-const WRITES_NOTHING = new Set(['cat', 'head', 'tail', 'less', 'grep', 'rg', 'wc', 'ls', 'stat', 'file', 'diff', 'cmp', 'sha256sum', 'md5sum', 'realpath', 'readlink', 'test', '[', 'echo', 'printf', 'chmod', 'touch', 'mkdir', 'true']);
+const WRITES_NOTHING = new Set(['cat', 'head', 'tail', 'less', 'grep', 'rg', 'wc', 'ls', 'stat', 'file', 'diff', 'cmp', 'sha256sum', 'md5sum', 'realpath', 'readlink', 'test', '[', 'echo', 'printf', 'chmod', 'touch', 'mkdir', 'true', 'kill', 'pkill', 'pgrep', 'killall']);
+// git checkout -b <new> and git switch -c <new>, with no start point or path, make a branch at HEAD and change no
+// working file (finding 3).
+const gitNewBranchOnly = (g) => {
+  const words = g.rest.filter((w) => w !== '-q' && w !== '--quiet');
+  return ((g.sub === 'checkout' && words[0] === '-b') || (g.sub === 'switch' && words[0] === '-c')) && words.length === 2 && !words[1].startsWith('-');
+};
+// The word a command reads as the script it runs (finding 1, R4): only that word is exempt; another word of the same
+// command naming the script may write it.
+function scriptOperand(c) {
+  if (runsScript(c) && !/\.(m?[jt]s|py|rb|pl|sh|bash)$/.test(c.prog)) { const { file } = interpreterScript(c); return file ? c.args.indexOf(file) : -1; }
+  if (c.runs && (SHELLS.has(c.prog) || c.prog === 'source' || c.prog === '.')) return c.args.findIndex((w) => !w.startsWith('-'));
+  return -1;
+}
 // git verbs that leave the working files as they are (plan audit 1, N5).
 const GIT_READS = new Set(['diff', 'log', 'show', 'status', 'ls-files', 'add', 'blame', 'grep']);
 const COPIES_INTO = new Set(['cp', 'mv', 'install', 'rsync', 'ln', 'tar', 'unzip']);
@@ -1514,16 +1559,20 @@ function checkWrittenScripts(cmds, config, deny) {
   const split = 'write the script in one call (or with the Write tool) and run it in the next, so the hook reads what runs';
   for (const c of cmds) {
     const targets = (c.redirects ?? []).filter((r) => r && !/^(\d+|-|\/dev\/\S+)$/.test(r));
-    const words = WRITES_NOTHING.has(c.prog) ? [] : (c.prog === 'git' && GIT_READS.has(gitParts(c).sub)) ? c.args.filter((w) => w.startsWith('--output')) : c.args;
+    const operand = scriptOperand(c);
+    const g = c.prog === 'git' ? gitParts(c) : null;
+    const allArgs = !(WRITES_NOTHING.has(c.prog) || (g && (GIT_READS.has(g.sub) || gitNewBranchOnly(g))));
+    const words = (allArgs ? c.args : (g && GIT_READS.has(g.sub)) ? c.args.filter((w) => w.startsWith('--output')) : []);
+    const mayWrite = allArgs ? words.filter((_, k) => k !== operand) : words;
     // A path the shell fills in starts with $ or a backtick ("$F", $(mktemp)); program text such as
     // awk '{print $1}' or sed 's/a/$b/' only holds one, and the parser does not keep which words were quoted.
     const unplaced = targets.find((r) => SUBST.test(r)) ?? (c.xargs && !WRITES_NOTHING.has(c.prog) ? 'words xargs adds' : words.find((w) => /^(\$|`)/.test(w) && SUBST.test(w)));
     if (unplaced !== undefined) { deny(refusal(ROUTE_RULE, `a script run in the same command as a write to "${unplaced}", which the shell fills in, so the script may be written and run in the same command`, split)); return; }
-    for (const { c: runner, f } of runs) {
+    for (const { f } of runs) {
       const name = f.split('/').at(-1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const named = (w) => { const v = w.startsWith('-') && w.includes('=') ? w.slice(w.indexOf('=') + 1) : w; return realPath(c.cwd, v) === f || new RegExp(`(^|[^\\w.-])${name}($|[^\\w.-])`).test(w); };
       const hit = targets.find((t) => realPath(c.cwd, t) === f)
-        ?? (runner === c ? undefined : words.find(named))
+        ?? mayWrite.find(named)
         ?? (COPIES_INTO.has(c.prog) ? c.args.find((w) => !w.startsWith('-') && f.startsWith(realPath(c.cwd, w).replace(/\/$/, '') + '/')) : undefined);
       if (hit !== undefined) { deny(refusal(ROUTE_RULE, `${relative(c.cwd, f) || f} is written and run in the same command (${c.prog} ${hit}), so the hook would judge the old file, not what runs`, split)); return; }
     }
