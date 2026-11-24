@@ -1,7 +1,7 @@
 // Counting visits, only with a yes (the Owner, 2026-11-24: "do not collect anything until after it is accepted").
 // Nothing from outside the site is on the page as it is served. A first visit is asked once; "No", or no answer, adds
 // nothing, ever. "Yes" adds Cloudflare's visitor counter (Web Analytics, which sets no cookies). The answer is kept on
-// the device, and the footer changes it both ways. With no site token in the page, it asks and adds nothing at all.
+// the device, and the footer changes it both ways. A page with no site token asks and adds nothing at all.
 import { deviceStore, readAnswer, type Store, writeAnswer } from './answer.ts'
 
 const COUNTER = 'https://static.cloudflareinsights.com/beacon.min.js'
