@@ -1277,3 +1277,253 @@ test('a script file written and run in the same command is refused, with a reaso
       rmSync(join(repo, f), { force: true, recursive: true })
   }
 })
+
+// 2026-11-24 follow-ups (specs/2026-11-24-hook-followups-refusals-design.md): reads and runs that were read as writes.
+test('a script run twice, or named by a command that writes nothing, is not a write; real writes still are', () => {
+  mkdirSync(join(repo, 'scripts'), { recursive: true })
+  writeFileSync(join(repo, 'scripts', 'up.mjs'), 'console.log(1)\n')
+  writeFileSync(join(repo, 'a.mjs'), 'console.log(1)\n')
+  writeFileSync(join(repo, 'b.mjs'), 'console.log(2)\n')
+  try {
+    for (const c of [
+      'node a.mjs x; node a.mjs y',
+      `pkill -f "${join(repo, 'scripts', 'up.mjs')}"; node scripts/up.mjs`,
+      'pgrep -f scripts/up.mjs; kill 1; killall up; node scripts/up.mjs',
+      'for r in a b; do git -C $r checkout -b x; node scripts/up.mjs; done',
+      'for r in a b; do git -C "$r" switch -q -c x; node scripts/up.mjs; done',
+    ])
+      assert.equal(bash(c).denied, false, `${c}: ${bash(c).reason}`)
+    for (const c of [
+      // A path in a shell variable stays unplaced, as on 990104a (the variable parts moved to a follow-up spec).
+      'L=/tmp/x; node scripts/up.mjs > "$L/up.log"',
+      'node "$PWD/scripts/up.mjs" --out "$PWD/scripts/out.txt"',
+      'cp b.mjs a.mjs; node a.mjs',
+      'S=a.mjs; cp b.mjs "$S"; node a.mjs',
+      'cp b.mjs "$PWD/a.mjs"; node a.mjs',
+      'L=/a; L=/b; node scripts/up.mjs > "$L/x"',
+      'for L in /a; do node scripts/up.mjs > "$L/x"; done',
+      'node scripts/up.mjs > "$F"',
+      'L=$(pwd); node scripts/up.mjs > "$L/x"',
+      'git -C $r checkout main; node scripts/up.mjs',
+      'git -C $r checkout -b x origin/main; node scripts/up.mjs',
+      'git -C $r checkout -- scripts/up.mjs; node scripts/up.mjs',
+      'node b.mjs a.mjs; node a.mjs',
+      // R4: only the word a run reads as its script is exempt.
+      'node a.mjs a.mjs; node a.mjs',
+      // R3: a variable set where the shell may not set it, or gives it another value, stays unknown.
+      'false && L=/a; node scripts/up.mjs > "$L/x"',
+      'L=/a | true; node scripts/up.mjs > "$L/x"',
+      '( L=/a ); node scripts/up.mjs > "$L/x"',
+      'L=/a & node scripts/up.mjs > "$L/x"',
+      'RANDOM=1; node scripts/up.mjs > "$RANDOM/x"',
+      'L=~/x; node scripts/up.mjs > "$L/y"',
+      'L=/a; read L; node scripts/up.mjs > "$L/x"',
+      'L=/a; cd /tmp; node scripts/up.mjs > "$PWD/x"',
+      // Plan audit 2, R2: bash changes a variable without NAME=.
+      'L=/nowhere; declare -n R=L; R=.; echo x > "$L/a.mjs"; node a.mjs',
+      'L=/nowhere; L[0]=.; echo x > "$L/a.mjs"; node a.mjs',
+      'L=a.m; L+=js; echo x > "$L"; node a.mjs',
+      'L=/nowhere; eval L=.; echo x > "$L/a.mjs"; node a.mjs',
+      'L=/nowhere; . ./x.sh; echo x > "$L/a.mjs"; node a.mjs',
+      `L=/nowhere; echo "\${L:=.}"; echo x > "$L/a.mjs"; node a.mjs`,
+      'L=/nowhere; printf -vL .; echo x > "$L/a.mjs"; node a.mjs',
+      'L=/nowhere; IFS=/; echo x > "$L/a.mjs"; node a.mjs',
+      // Plan audit 3, R2: brace expansion names a variable without spelling it.
+      'L=/nowhere; declare {L,Q}=.; echo x > "$L/a.mjs"; node a.mjs',
+      'L=/nowhere; read {L,Q} <<< \'. .\'; echo x > "$L/a.mjs"; node a.mjs',
+      'L=/nowhere; export {L,Q}=.; echo x > "$L/a.mjs"; node a.mjs',
+      'L=/nowhere; pr\'\'intf -vL .; echo x > "$L/a.mjs"; node a.mjs',
+      // Plan audit 4, R2: a word built from a known variable names another.
+      'L=/nowhere; A=L; declare "$A=."; echo x > "$L/a.mjs"; node a.mjs',
+      'L=/nowhere; A=L; export "$A=."; echo x > "$L/a.mjs"; node a.mjs',
+      'L=/nowhere; A=L; unset "$A"; echo x > "$L/a.mjs"; node a.mjs',
+      `A=PW; declare "\${A}D=scripts"; echo x > "$PWD/up.mjs"; node scripts/up.mjs`,
+      // Plan audit 5, R1: arithmetic reads a value like L=0 as an assignment.
+      'L=/nowhere; B=L=0; (( B )); echo x > "$L/a.mjs"; node 0/a.mjs',
+      'L=/nowhere; B=L=0; [[ B -eq 0 ]]; echo x > "$L/a.mjs"; node 0/a.mjs',
+      'L=/nowhere; B=L=0; declare -i X; X=B; echo x > "$L/a.mjs"; node 0/a.mjs',
+      `L=/nowhere; B=L=0; x=(a b); echo "\${x[B]}"; echo x > "$L/a.mjs"; node 0/a.mjs`,
+      `L=/nowhere; B=L=0; s=abc; echo "\${s:B}"; echo x > "$L/a.mjs"; node 0/a.mjs`,
+      'L=/nowhere; X="$(printf \'\\x4c=0\')"; [[ X -eq 0 ]]; echo x > "$L/a.mjs"; node 0/a.mjs',
+      'L=/nowhere; B=L=0; let B; echo x > "$L/a.mjs"; node 0/a.mjs',
+      // Plan audit 3, B1: cd however it is spelled moves $PWD.
+      '\\cd scripts; echo x > "$PWD/up.mjs"; node up.mjs',
+      '\'cd\' scripts; echo x > "$PWD/up.mjs"; node up.mjs',
+      'c\'\'d scripts; echo x > "$PWD/up.mjs"; node up.mjs',
+      // Expanded, the path is the script itself.
+      'S=scripts; cp b.mjs "$S/up.mjs"; node scripts/up.mjs',
+    ])
+      assert.match(bash(c).reason, /written and run in the same command|fills in|split|PATH set/, c)
+  } finally {
+    for (const f of ['scripts', 'a.mjs', 'b.mjs']) rmSync(join(repo, f), { force: true, recursive: true })
+  }
+})
+
+test('a shell function definition stays refused, even one whose body only reads (moved to a follow-up spec)', () => {
+  for (const c of [
+    'c() { grep -cF "$1" docs/a.md; }; c one; c two',
+    'function c { grep -c "$1" a; }\nc x',
+    'c() { cat "$1" | sort | head -3; }; c a.txt',
+    'c() { gh pr "$1" 5; }; c merge',
+    'c() { rg --pre sh x; }; c',
+    'c() { cat a > "$1"; }; c b',
+    'c() { sort -o "$1" a; }; c b',
+    'c() { grep x "$(gh pr merge 5)"; }; c',
+    'c() { d; }; d() { gh pr merge 5; }; c',
+    'c() { { grep x a; }; }; c',
+    'c() { awk 1 a; }; c',
+    'c() { printf -v PATH %s /tmp; }; c',
+    // R1: a name the parser acts on keeps today's refusal.
+    'cd() { true; }; cd /tmp; gh pr list',
+    'export() { true; }; export GH_REPO=o/r; gh pr list',
+    'gh() { cat a; }; gh pr list',
+    'c() ( grep x a ); c',
+    // Plan audit 2, R1: a call's words go into the body; a reader's name is not free.
+    'c() { printf "$@"; }; c -v PATH %s /tmp/evil; gh pr list',
+    `cat() { sort "$@"; }; cat -o ${['.claude', 'settings.json'].join('/')} x`,
+    `c() { sort "$@"; }; c -o ${['.claude', 'settings.json'].join('/')} x`,
+    'c() { grep "$1" a; }; c "$(gh pr merge 5)"',
+    'c() { grep "$1" a; }; echo x | xargs c',
+    // Plan audit 3, R1: only $1 to $9, \${1} to \${9} and $@ expand in a body; a call word is never split or expanded.
+    `c() { printf "\${@}"; }; c -v PATH %s /tmp/evil; gh pr list`,
+    `c() { printf "\${1:-}" %s /tmp/evil; }; c -vPATH; gh pr list`,
+    `c() { printf "\${@:1}"; }; c -v PATH %s /tmp/evil; gh pr list`,
+    'c() { printf "$*"; }; c -v PATH %s /tmp/evil; gh pr list',
+    "c() { printf $1 %s /tmp/evil; }; c '-v PATH'; gh pr list",
+    'c() { sort $1 a; }; c {-o,x}',
+    'c() { sort $1 a; }; c -?',
+    "c() { grep $1 $2; }; c ''",
+    'c() { grep $1 $2; }; c x',
+    'IFS=v; c() { printf -$1 %s /tmp/evil; }; c PATH; gh pr list',
+  ])
+    assert.equal(bash(c).denied, true, c)
+  // Plan audit 4, R1: behind a wrapper the name is the program on PATH, not the function: refused.
+  writeFileSync(join(repo, 'a.mjs'), 'console.log(1)\n')
+  try {
+    for (const c of [
+      'sponge() { cat "$1"; }; echo hi | timeout 9 sponge a.mjs; node a.mjs',
+      'sponge() { cat "$1"; }; echo hi | env sponge a.mjs; node a.mjs',
+      'sponge() { cat "$1"; }; echo hi | command sponge a.mjs; node a.mjs',
+      'patch() { cat "$1"; }; timeout 9 patch a.mjs x.diff; node a.mjs',
+      // Plan audit 5, R2: a definition bash does not keep is no function.
+      'sponge() { cat "$1"; }; unset -f sponge; echo hi | sponge a.mjs; node a.mjs',
+      'false && sponge() { cat "$1"; }; echo hi | sponge a.mjs; node a.mjs',
+      '( sponge() { cat "$1"; } ); echo hi | sponge a.mjs; node a.mjs',
+      'sponge() { cat "$1"; } & echo hi | sponge a.mjs; node a.mjs',
+      'echo | sponge() { cat "$1"; }; echo hi | sponge a.mjs; node a.mjs',
+      'sponge() { cat "$1"; } | true; echo hi | sponge a.mjs; node a.mjs',
+    ])
+      assert.match(bash(c).reason, /behind a wrapper|written and run in the same command/, c)
+  } finally {
+    rmSync(join(repo, 'a.mjs'), { force: true })
+  }
+})
+
+// Plan audit 7, R1: the hook's own sed reader split [/] differently from sed, so sed beside a gh api read stays
+// refused, as on 990104a (moved to a follow-up spec).
+test('a gh api read piped to sed stays refused, as on 990104a', () => {
+  for (const c of [
+    "gh api -X GET search/code -f q='repo:mcthaydt/One rules' | sed -n 1,5p",
+    "gh api -X GET search/code -f q=x --jq '.items[].path' | sed 's/^/x /g'",
+    "gh api -X GET search/code -f q=x | sed -n 's/[/]/;s/w x.sh\\n/x/p'",
+    'gh api -X POST repos/mcthaydt/One/issues -f title=x | sed -n 1p',
+    "gh api -X GET search/code -f q=x | sed 's/a/b/e'",
+    "gh api -X GET search/code -f q=x | sed -n 'w out'",
+    "gh api -X GET search/code -f q=x | sed -n '1e date'",
+    'gh api -X GET search/code -f q=x | sed -i s/a/b/ notes.md',
+    'gh api -X GET search/code -f q=x | sed -f prog.sed',
+    'gh api -X GET search/code -f q=x | sh',
+  ])
+    assert.equal(bash(c).denied, true, c)
+})
+
+const SETTINGS = ['.claude', 'settings.json'].join('/')
+test('a read that names the Claude Code settings file is allowed; a write to it is still refused', () => {
+  for (const c of [`grep -n hooks ${SETTINGS} | cut -c1-80`, 'find .claude -name settings.json'])
+    assert.equal(bash(c).denied, false, `${c}: ${bash(c).reason}`)
+  for (const c of [
+    // Plan audit 8: sort and uniq near the settings file stay refused, as on 990104a.
+    `grep -n hooks ${SETTINGS} | sort`,
+    `cat a.mjs | uniq - ${SETTINGS}`,
+    `uniq - ${SETTINGS} < a.mjs`,
+    `grep x a.mjs | uniq - ${SETTINGS}`,
+    'cd .claude && cat ../a.mjs | uniq - settings.json',
+    `grep x a.mjs | sort --ou=${SETTINGS}`,
+    `grep x a.mjs | sort --outp=${SETTINGS}`,
+    `sort --out ${SETTINGS} a.mjs`,
+    `sort --compress-prog=./evil.sh -S 1K ${SETTINGS}`,
+    `sort --compress=sh -S 1K ${SETTINGS}`,
+    // Plan audit 7, R1: sed near the settings file stays refused, as on 990104a.
+    `sed -n 1,40p ${SETTINGS}`,
+    "cd .claude && sed -n 's/[/]/;s/w settings.json\\n/x/p' settings.json",
+    `sed -i s/a/b/ ${SETTINGS}`,
+    `sed -n 'w x' ${SETTINGS}`,
+    `awk 'NR<5' ${SETTINGS}`,
+    `echo hi > ${SETTINGS}`,
+    `cp x ${SETTINGS}`,
+    `sort -o ${SETTINGS} x`,
+    `find ${SETTINGS} -delete`,
+    // R2: find runs what -exec names.
+    `find ${SETTINGS} -exec sed -i s/a/b/ {} +`,
+    `find ${SETTINGS} -fprint x`,
+    `grep x ${SETTINGS} | tee ${SETTINGS}`,
+    `uniq a ${SETTINGS}`,
+    // Finding 10: a guarded file behind a shell variable, known or not.
+    'L=.claude; echo x > "$L/settings.json"',
+    'L=.claude; cp b.mjs "$L/settings.json"',
+    'echo x > "$D/settings.json"',
+    `cp b.mjs "\${D}/.gitconfig"`,
+  ])
+    assert.match(bash(c).reason, /Claude Code settings/, c)
+})
+
+test('PATH set without PATH= beside gh, git or a script is refused (finding 11)', () => {
+  for (const c of [
+    'printf -v PATH %s /tmp/evil; gh pr list',
+    'printf -vPATH %s /tmp/evil; git status',
+    'read PATH; gh pr list',
+    'declare PATH=/tmp; gh pr list',
+    'typeset -x PATH; node a.mjs',
+    'mapfile PATH < x; gh pr list',
+    // Plan audit 2, R2.
+    'PATH[0]=bin; gh pr list',
+    'declare -n P=PATH; P=bin; gh pr list',
+    // Plan audit 4, N1: a name the shell builds may be PATH.
+    'A=PATH; declare "$A=/tmp/evil"; gh pr list',
+    `A=PA; declare "\${A}TH=/tmp/evil"; gh pr list`,
+  ])
+    assert.match(bash(c).reason, /PATH set in the same command/, c)
+  assert.equal(
+    bash('printf -v OUT %s x; gh pr list').denied,
+    false,
+    bash('printf -v OUT %s x; gh pr list').reason,
+  )
+})
+
+test("a body's Lane section decides its lane; with none, the highest lane named anywhere still does (#280)", () => {
+  const ready = (text) =>
+    bash('gh api -X POST repos/mcthaydt/One/pulls/9/ccr/ready_for_review', {
+      table: {
+        ...baseTable(0),
+        'repos/mcthaydt/One/pulls/9': {
+          number: 9,
+          state: 'open',
+          body: text,
+          head: { ref: 'feature', sha: 'abc1234' },
+        },
+        'repos/mcthaydt/One/issues/9/comments': [],
+        'repos/mcthaydt/One/pulls/9/reviews': [],
+      },
+    })
+  const audit = `The lane 2 review of #279, on its head 20ddfb1: PASS.\n\n${body()}`
+  assert.equal(ready(audit).denied, false, ready(audit).reason)
+  // No Lane section: every lane named counts, the highest wins, as before.
+  const loose =
+    'Lane 1, a doc. The lane 2 review of #279.\n\n## Acceptance criteria\n\n- ok\n\nRequested by **T**'
+  assert.match(ready(loose).reason, /lane 2 pull request #9 has no passing review/)
+  // The Lane section's own highest lane wins inside it.
+  const both = body().replace('Lane 1.', 'Lane 1 for the doc, lane 3 for the hook.')
+  assert.match(ready(both).reason, /lane 3 pull request #9 has no passing review/)
+  // A Lane section that names no lane names none.
+  assert.match(ready(body().replace('Lane 1.', 'A doc.')).reason, /names no lane/)
+})
