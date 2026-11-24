@@ -40,10 +40,19 @@ async function watchTheWire(context: BrowserContext, site: string) {
       body: "fetch('https://cloudflareinsights.com/cdn-cgi/rum', { method: 'POST', body: '{}' })",
     })
   })
-  await context.route(REPORT, (route) => {
-    reports++
-    return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*' } })
+  // A report counts once the browser has finished it, not when it is answered: a journey that checks for trouble
+  // right after must not catch one still on its way (CI's Chromium marked a 204 answered that way as aborted).
+  context.on('requestfinished', (request) => {
+    if (REPORT.test(request.url())) reports++
   })
+  await context.route(REPORT, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/plain',
+      body: 'ok',
+      headers: { 'access-control-allow-origin': '*' },
+    }),
+  )
   return { away: () => [...away], counted: () => counted, reports: () => reports }
 }
 
