@@ -2,8 +2,16 @@
 
 Written 2026-11-14. Stage 1 (Spec) of the project workflow, for the Automata Framework website. It widens the site
 the [2D first layer spec](https://github.com/mcthaydt/AutomataFramework/blob/main/docs/superpowers/specs/2026-11-13-2d-first-layer-design.md)
-describes and the home redesign ([`audits/2026-11-14-home-design-audit.md`](../audits/2026-11-14-home-design-audit.md))
+describes and the home redesign ([`audits/2026-11-14-home-design-audit.md`](https://github.com/mcthaydt/AutomataFrameworkSite/blob/a3a45e7ef0f6e74e9fee13914b4f5d483a51f7a5/docs/superpowers/audits/2026-11-14-home-design-audit.md))
 built. Those still hold; where this one differs it is newer and says so.
+
+**Changed 2026-11-24: the editors are sold as Automata Suite.** The Owner (2026-11-24 14:54 UTC): "Editors will no
+longer be free to use, but the framework itself will be, and that will continue to be completely open source; we'll do
+automata framework which is the code framework, and automata suite which is our editor suite." The Suite's spec is
+AutomataFramework [`docs/superpowers/specs/2026-11-24-automata-suite-design.md`](https://github.com/mcthaydt/AutomataFramework/blob/main/docs/superpowers/specs/2026-11-24-automata-suite-design.md)
+(#275), and it wins where the two differ. This spec follows it: the framework stays free and MIT; the editors are
+Automata Suite, bought once and kept, on a buying page; pricing is the Suite's, not "free in your browser" (Q2 below
+is replaced). Prices are never written in this repo: they live in the Owner's private notes.
 
 **When it is built.** The spec is written now so it is ready. The page is planned and built once the M2 showcase demo
 game has landed, just before Release 1, because a page that sells has to rest on proof, and most of the proof arrives
@@ -15,7 +23,8 @@ right and leaves what it got wrong (see "What carries over from the first attemp
 
 **Status of this spec.** The Owner answered its four questions on 2026-11-14 (see "The Owner's answers"): the catch is
 live on the page, the app's prices and a sign-up are shown, the Owner's studio is shown, and the site gains the pages
-of a full framework site, not only Home and Start.
+of a full framework site, not only Home and Start. Q2's answer is replaced by Automata Suite (2026-11-24, above): the
+site shows the Suite and its buying page beside the free framework.
 
 ## Principles served
 
@@ -49,7 +58,11 @@ one claim with the real thing, not a description of it.
 ## Non-goals
 
 - Pages for what does not work yet: a guide, an example or an API page appears only once what it shows is on `main`.
-- Selling the editors or publishing before they work. Those claims stay "Being built" until they are true on `main`.
+- Selling the editors or publishing before they work. Those claims stay "Being built" until they are true on `main`;
+  the buying page opens only when Release 2 sells the Suite.
+- Selling "everything" before the 3D editors exist (the Suite spec): until then the buying page offers one editor or
+  the 2D group.
+- Prices, the market or the country price table written in this repo. They are the Owner's private notes.
 - A light theme. Dark is the only theme.
 - A blog, a changelog page, a newsletter, a community page.
 - Analytics scripts or any request to another company's server from the page.
@@ -67,6 +80,10 @@ one claim with the real thing, not a description of it.
 - **Two bright buttons on one screen.** One yellow action per screen, always the same action.
 - **Restyling the game's art** or drawing over it.
 - **A page that is slow** because it sells: the first screen is the site's own small files; the game loads after.
+- **The framework looking paid.** Nothing on the page suggests the framework, the `automata` command or a game made
+  with them needs an account or a purchase. "Free" and "MIT" stay next to the framework wherever the Suite is shown.
+- **A buying trap**: a hidden renewal, a price that changes at checkout, a box ticked for the visitor, or a refund that
+  takes more than one press. The Suite's promise is "you own it, no traps".
 
 ## Decided already (by the Owner)
 
@@ -82,7 +99,8 @@ one claim with the real thing, not a description of it.
 | Safety | The strict safety header stays. |
 | Copy | The drunk-grandma test. |
 | The catch (Q1) | Live on the page: the visitor nudges a real number and the check turns red (the Owner, 2026-11-14). |
-| Pricing (Q2) | The app's prices, paid once, and an email sign-up for when it is out (the Owner, 2026-11-14). |
+| Pricing (Q2) | Replaced 2026-11-24: Automata Suite and its buying page, beside the free framework (the Suite spec). Was: the app's prices, paid once, and an email sign-up for when it is out (the Owner, 2026-11-14). |
+| What is sold (the Suite spec, 2026-11-24) | One editor or the 2D group (everything only once the 3D editors exist); a version kept forever, with every new feature released in the 12 months after buying; one purchase for the browser, the computer app and the phone and iPad app; a 30-day trial of the whole Suite; a full refund within 14 days on the website, except crypto; lower prices in poorer countries. |
 | Proof from people (Q3) | The Owner's own studio, SNEKPRTY, shown now (the Owner, 2026-11-14). |
 | Pages (Q4) | Home, Start, Pricing, Privacy, the 404 and `llms.txt`, and more: guides, examples, the API reference, a showcase and search, the shape of a full framework site (the Owner, 2026-11-14). |
 
@@ -145,12 +163,12 @@ A text sketch at desktop width; the phone stacks it, left-aligned.
    CHECKS          Your agent can't quietly break your game.     [the catch, Q1]
    BUILT FOR AGENTS  That whole level is one small file.         [the file + the commands]
    WHERE IT STANDS What works today, and what is still being built.  [five stamps]
-   PRICING         Free in your browser · The app, paid once  [Tell me when it's out]
+   PRICING         The framework: free, MIT · Automata Suite: buy once, keep it  [Tell me when it's out]
    ┌───────────────────── Finish your next game. ──────────────────────┐
    │  One command makes a game with saves, menus and controls done.     │
    │  [ Make a game → ]     $ <create command>  ⧉                       │
    └────────────────────────────────────────────────────────────────────┘
-   footer: automata · Free and MIT licensed · Start · Pricing · Privacy · GitHub · Licences
+   footer: automata · The framework is free and MIT licensed · Start · Automata Suite · Privacy · Terms · GitHub · Licences
 ```
 
 Each section below says what it shows, what it proves, where its facts come from, and the direction for its words. The
@@ -241,7 +259,8 @@ The page's centrepiece, shown as a thing that happens, not a table to read.
 ### 7. Claims 4 and 5: the editors and publishing
 
 At Release 1 the editors (Release 2) and publishing (Release 4) are not finished. So they get **no section** of their
-own and appear only in "Where it stands", stamped "Being built", with one honest line each. The editors' line may say
+own and appear only in "Where it stands", stamped "Being built", with one honest line each. The editors' line says
+they are coming as Automata Suite, sold once and kept, not that they are free (the roadmap's Release 1, step 4). It may say
 what is true today (for example, "You can already move things in the demo game's first level on an iPad; the rest is
 being built") and link to the editor, if that is true on `main` when the page is built. Each earns a section like 4 to
 6 the day its claim works, in the plan that makes it work.
@@ -252,13 +271,46 @@ Today's five claims with their stamps, unchanged in kind. At Release 1 the expec
 works, claim 3 works, claims 4 and 5 being built. The stamps are not written here: each is held to `main` by its
 proof, and the build stops when a "Works today" does not hold.
 
-### 9. Pricing
+### 9. Pricing: the framework and Automata Suite
 
-Decided (the Owner, Q2): two columns. "Free in your browser": the framework (MIT), every editor in the browser,
-signing in to save into your game. "The app, paid once": the editors installed on an iPad, an Android phone or a
-computer, with the prices in the private notes, confirmed with the Owner in the plan, marked "Not out yet", and one
-field and button, "Tell me when it's out", that takes an email address. Under it, in plain words: what is kept (the address and the
-day), why (to send one message when the app is out), and that it is never shared; a link to Privacy.
+Replaced 2026-11-24 (the Suite spec). Two columns:
+
+- **"The framework: free"**: the code framework, the `automata` command and shipping a game, MIT, no account, forever;
+  games never pay a cut. Its button is the page's one yellow action, "Make a game".
+- **"Automata Suite: buy once, keep it"**: the six 2D editors (World, Characters, Feel, Sound, Story, Screens), in the
+  browser, on a computer and on an iPad or phone, under one account; one editor or the 2D group; the version is kept
+  forever, with every new feature released in the 12 months after buying; a 30-day trial; a full refund within 14
+  days. Each line in plain words, as a promise the visitor can check. Its button is quiet and goes to the buying page.
+
+Until Release 2 sells the Suite, the Suite's column is marked "Not out yet" and has no prices and no buying page; in
+their place, one field and button, "Tell me when it's out", that takes an email address. Under it, in plain words: what
+is kept (the address and the day), why (to send one message when the Suite is out), and that it is never shared; a
+link to Privacy.
+
+### 9a. The buying page (`/suite/`, from Release 2)
+
+The page where a visitor buys Automata Suite. Its job: pick what, pay, open the editor, on one screen of choices (the
+Suite spec: "Buying never takes more than one screen of choices on the website").
+
+- **Pick**: one editor or the 2D group, each with its price in the visitor's own currency and what it includes, in plain
+  words. "Everything" does not appear until the 3D editors exist. Someone who already owns an older version sees the
+  upgrade price once they are signed in; someone who owns one editor and picks the group sees the difference.
+- **Pay**: one yellow "Buy" (on this page it replaces "Make a game" as the one yellow action). It signs the visitor in
+  (an email link, Google, or Apple once it exists; no passwords) and hands them to Coinflow's checkout, with the tax
+  lines the tax service works out. Crypto sits behind a quiet "More ways to pay"; before paying, the page says in
+  plain words that a crypto purchase cannot be refunded and starts at once, and the buyer agrees to that.
+- **Open**: after paying, one button opens the editor they bought, already signed in.
+- **Try first**: a quiet "Try it free for 30 days" beside "Buy". After 30 days, work opens read-only until they buy;
+  nothing is ever deleted or locked away. The page says so.
+- **The promises**, under the choices, short: you keep it; a year of new features; every device, one account; a full
+  refund within 14 days in one press from your account page; your games are yours and never pay a cut.
+- **Facts**: what can be bought, its prices and the country table come from the account server (AutomataFramework's
+  Suite spec: the one record of who owns what) at build time or when the page opens; never typed into this repo. The
+  page shows "Not out yet" if the account server has nothing for sale.
+- **Proof**: a journey buys against a pretend account server and a pretend checkout, sees the editor open, and sees a
+  refused payment say so in plain words; a test fails if a price, or a "Buy" for "everything", is written in this repo.
+- **Left to the plan**: whether prices are read at build time or when the page opens; how the buying page and the
+  editors' sign-in share the account (the Editors repo owns the account server and the sign-in).
 
 The sign-up is the site's first Pages Function. It is the only part of the site that runs code on the
 server, it holds no secret beyond Cloudflare's own binding, and `deploy` still never runs the game's code. The store
@@ -295,14 +347,17 @@ no link points at it.
 | Examples `/examples/` | A gallery of small runnable games, one feature each, each playing live in a frame with its one source file beside it and "Copy" on the file | The one-file examples in the Examples repo | When the first examples are there; a plan in Examples writes them |
 | API `/api/` | The framework's public functions and types, one page per entry point, with each doc comment | The framework's API report, at the release's commit | Release 1 |
 | Showcase `/showcase/` | Games and studios made with Automata, bigger than the home row: a picture, a line, where to play | The same content file as "Made with Automata" | With the home row |
-| Pricing `/pricing/` | Section 9 in full | The prices file | With the home section |
-| Privacy `/privacy/` | What the site keeps | — | With the sign-up |
+| Pricing `/pricing/` | Section 9 in full: the free framework and Automata Suite | The Suite's offer, from the account server; no prices in this repo | With the home section |
+| Automata Suite `/suite/` | The buying page (section 9a) | The account server | Release 2 |
+| Download `/download/` | The computer app for macOS, Windows and Linux, signed; downloads only from here, never from a Mac or Microsoft store (the Suite spec) | The Editors' signed builds | Release 4 |
+| Privacy `/privacy/` | What the site keeps; from Release 2, the Suite's privacy policy | The policy agents draft and the Owner approves | With the sign-up |
+| Terms `/terms/` | The Suite's terms of sale, in plain words | The terms agents draft and the Owner approves | Release 2 |
 | Search | One box in the bar (and `/` on a keyboard) over the guides, examples and API, built at build time into a small index the page reads; no other company's service | The pages above | Once there are guides and API pages to search |
 | `llms.txt` and `llms-full.txt` | The framework for an agent: the first is short, the second has every guide and the API in one file | The same sources | Release 1 |
 
 *My calls:* the top bar becomes Start, Guides, Examples, API, Pricing, with GitHub and the yellow "Make a game" on the
 right; on a phone they go behind one "Menu" button. The bar shows the framework's version, read from the facts. The
-editors get no page until they are released (Release 2). The first attempt's playground (code typed into the page) is
+editors get no page until they are sold (Release 2); then "Automata Suite" joins the bar. The first attempt's playground (code typed into the page) is
 left out, because the examples' "Copy" and the agent prompt serve the same need without running typed code under the
 strict safety header. Every page has the same look, the same safety header and its own journeys.
 
@@ -312,8 +367,13 @@ strict safety header. Every page has the same look, the same safety header and i
   what works. Then "Or hand it to your agent": the prompt, with its copy button. Then "Stuck?": a link to open an issue
   on GitHub, said plainly.
 - **Pricing** (`/pricing/`): section 9 in full.
-- **Privacy** (`/privacy/`): what the site keeps (nothing, unless the visitor signs up for the app; then the address
-  and the day), what Cloudflare sees, and how to be removed. Short.
+- **Automata Suite** (`/suite/`): section 9a.
+- **Privacy** (`/privacy/`): what the site keeps (nothing, unless the visitor signs up for news of the Suite; then the
+  address and the day), what Cloudflare sees, and how to be removed. Short. From Release 2 it also carries the Suite's
+  privacy policy (the account, purchases, devices, and deleting the account), which agents draft in plain words and
+  the Owner approves.
+- **Terms** (`/terms/`): from Release 2, the Suite's terms of sale, in plain words, drafted by agents and approved by
+  the Owner.
 - **The 404**: in the same look, with the yellow "Make a game" and a link home.
 - **`llms.txt`**: what the framework is, the create and check commands, where the agent skills and the MCP server are,
   and the five claims with their stamps, built from the same facts as the page.
@@ -357,7 +417,7 @@ test in the plan:
 | The announcement pill above the claim | Yes, as the release tag |
 | "Copy the prompt for your agent" | Yes |
 | A "Made with" carousel | Yes, as a row starting with SNEKPRTY (Q3) |
-| Pricing with the app's two prices | Yes (Q2) |
+| Pricing with the app's two prices | Replaced by the free framework and Automata Suite (2026-11-24) |
 | Sections for the editors, publishing, 21 examples and a changelog that `main` did not back | No, the site's first rule; examples come back as real ones land |
 | Near-black and lime, Geist, SvelteKit, two motion libraries, a code-editor library | No: the decided look and the current static build |
 | Docs, examples, API reference, search | Yes, each when what it reads is on `main` (Q4); the playground is left out |
@@ -373,6 +433,9 @@ test in the plan:
 | Framework | Its guides as Markdown and its API report at the release's commit | Guides, API, search, `llms-full.txt` |
 | Framework (M2 plan K) | The README's first section and its clean-folder test; the release with skills, check and MCP | Start, the command, the prompt, claim 2's proof |
 | Framework | Release 1 published | The tag, "has them built in" |
+| Editors (Release 2) | The account server: what is for sale, sign-in, checkout with Coinflow, and the license | The buying page (9a) |
+| Editors (Release 4) | The signed computer downloads | The Download page |
+| The Owner | The prices and the country table (in Notion), the Coinflow account, the tax service, and approving the terms and privacy policy | The buying page, Terms and Privacy |
 
 Until each has landed, its section keeps today's form and honest words; the plan builds each part only once what it
 reads exists on `main`.
@@ -389,7 +452,9 @@ Tests run only in GitHub-hosted CI. Every new part has:
   phone; a search that finds a guide, an example and an API entry; an example playing and its file copied; the 404;
 - the copy test (forbidden words, one yellow action per screen, sentence case on titles);
 - the byte budget for the first screen;
-- the no-other-server test: the page makes no request to any address but its own.
+- the no-other-server test: the page makes no request to any address but its own, except the buying page, which
+  talks only to the account server and, after "Buy" is pressed, Coinflow's checkout;
+- the no-prices test: no price, currency amount or market figure is written in this repo.
 
 ## Done means
 
@@ -408,7 +473,8 @@ more pages.** The questions are kept as asked, so the reasons stay with the answ
 1. **Q1. The catch:** (a) live on the page, the visitor nudges a real number and the check turns red (recommended), or
    (b) a real caught break from CI, shown still. *Answered (a);* (b) stays as the fallback when the game can't load.
 2. **Q2. Pricing and the app sign-up:** (a) prices and "Tell me when it's out" with an email sign-up (recommended), (b)
-   the sign-up without prices, or (c) no pricing until Release 2. *Answered (a).*
+   the sign-up without prices, or (c) no pricing until Release 2. *Answered (a).* Replaced on 2026-11-24 by Automata
+   Suite (section 9): the sign-up stays, for the Suite, until Release 2.
 3. **Q3. Proof from people:** (a) no section until real, then a "Made with" row (recommended), or (b) the Owner's own
    studio shown now. *Answered (b).*
 4. **Q4. The pages:** (a) Home, Start, Pricing, Privacy, the 404 and `llms.txt` (recommended), (b) Home only, or (c)
