@@ -6,7 +6,7 @@ import { readPicture } from './png.ts'
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
-const ADDRESS = 'https://automataframework.pages.dev/'
+const ADDRESS = 'https://automataframework.com/'
 const DESCRIPTION =
   'Automata Framework is a toolkit for making 2D games that play in a web browser. It is still being built. Play the first game made with it.'
 
