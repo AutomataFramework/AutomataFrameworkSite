@@ -56,6 +56,29 @@ async function watchTheWire(context: BrowserContext, site: string) {
   return { away: () => [...away], counted: () => counted, reports: () => reports }
 }
 
+/** A made-up site token: 32 hex digits, as Cloudflare's are. */
+const TOKEN = '0123456789abcdef0123456789abcdef'
+
+/**
+ * Serves the home page with a counter token in it, for every page of the visit. The site is served with an empty token
+ * until Cloudflare's site for it exists, so the journeys of a question that is answered put one in, the way the real
+ * token will be: in the page's `automata-counter-token` meta, with the site's own headers kept.
+ */
+async function withToken(context: BrowserContext): Promise<void> {
+  await context.route(
+    (url) => url.pathname === '/',
+    async (route) => {
+      const response = await route.fetch()
+      const body = (await response.text()).replace(
+        '<meta name="automata-counter-token" content="" />',
+        `<meta name="automata-counter-token" content="${TOKEN}" />`,
+      )
+      expect(body, 'the page carries the token').toContain(TOKEN)
+      await route.fulfill({ response, body })
+    },
+  )
+}
+
 /**
  * The same visitor comes back: a new page on the same device (the answer is kept there), watched for trouble from its
  * start. A new page rather than a reload, because a reload cancels the game's loads in the page before it, and a
@@ -81,6 +104,7 @@ for (const size of SIZES) {
     }) => {
       const trouble = watchForTrouble(page)
       const wire = await watchTheWire(page.context(), new URL(baseURL ?? '').origin)
+      await withToken(page.context())
       await arrive(page)
       await expect(notice(page)).toBeVisible()
       await expect(notice(page).getByRole('heading')).toHaveText(WORDS.question)
@@ -118,6 +142,26 @@ for (const size of SIZES) {
   })
 }
 
+// As served until Cloudflare's site for it exists: no token, so nothing is asked, nothing can be switched on, and
+// nothing leaves the site, even with the game playing itself.
+test.describe('phone-390x844: with no token', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('nothing is asked and nothing leaves the site', async ({ page, baseURL }) => {
+    const trouble = watchForTrouble(page)
+    const wire = await watchTheWire(page.context(), new URL(baseURL ?? '').origin)
+    await arrive(page)
+    await untilWatching(page)
+    await expect(notice(page)).toBeHidden()
+    await expect(page.getByRole('button', { name: WORDS.start, exact: true })).toBeHidden()
+    await expect(page.getByRole('button', { name: WORDS.stop, exact: true })).toBeHidden()
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 1_000)))
+    expect(wire.away()).toEqual([])
+    expect(wire.counted()).toBe(0)
+    expect(trouble()).toEqual([])
+  })
+})
+
 test.describe('desktop-1440x900: the answer', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
 
@@ -127,6 +171,7 @@ test.describe('desktop-1440x900: the answer', () => {
   }) => {
     const trouble = watchForTrouble(page)
     const wire = await watchTheWire(page.context(), new URL(baseURL ?? '').origin)
+    await withToken(page.context())
     await arrive(page)
     await press(page, WORDS.no)
     await expect(notice(page)).toBeHidden()
@@ -144,6 +189,7 @@ test.describe('desktop-1440x900: the answer', () => {
   test('Yes adds the counter once, and once again when they come back', async ({ page, baseURL }) => {
     const trouble = watchForTrouble(page)
     const wire = await watchTheWire(page.context(), new URL(baseURL ?? '').origin)
+    await withToken(page.context())
     await arrive(page)
     expect(wire.counted()).toBe(0)
     await press(page, WORDS.yes)
@@ -166,6 +212,7 @@ test.describe('desktop-1440x900: the answer', () => {
   test('the footer changes the answer both ways', async ({ page, baseURL }) => {
     const trouble = watchForTrouble(page)
     const wire = await watchTheWire(page.context(), new URL(baseURL ?? '').origin)
+    await withToken(page.context())
     await arrive(page)
     await press(page, WORDS.yes)
     await expect.poll(wire.reports).toBe(1)
