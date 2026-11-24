@@ -132,7 +132,8 @@ for (const size of SIZES) {
       await arrive(page)
       await expect(page.locator('.kicker')).toHaveText(WORDS.kickers)
       const [files, checks, ...rest] = WORDS.headings
-      await expect(page.getByRole('heading', { level: 2 })).toHaveText([
+      // The question about counting visits has its own journey (count.journey.ts); these are the page's own parts.
+      await expect(page.locator('h2:not(#ask-title)')).toHaveText([
         files ?? '',
         `${said.levelsCount}${WORDS.worldHeadingTail}`,
         checks ?? '',

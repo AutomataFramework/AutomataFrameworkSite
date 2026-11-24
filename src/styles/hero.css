@@ -74,6 +74,41 @@ h1 {
   margin-top: 32px;
 }
 
+/* ---- The question about counting visits: in the page's flow, under the Play buttons, so it covers nothing (least of
+   all the game) and moves nothing above it. It is shown only until it is answered. ---- */
+
+.ask {
+  max-width: 620px;
+  margin: 32px auto 0;
+  padding: 20px 24px;
+  border: 1px solid var(--quiet);
+  border-radius: var(--corner);
+  background: var(--raised);
+}
+
+.ask h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.ask p {
+  margin-top: 8px;
+  color: var(--quiet);
+  text-wrap: pretty;
+}
+
+.ask-answers {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.ask-answers .btn {
+  min-width: 112px;
+}
+
 /* ---- The game on its sheet: a bar, the game, a title block. Nothing of the site's is ever over the game. ---- */
 
 .sheet {
