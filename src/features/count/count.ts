@@ -42,16 +42,19 @@ function cutOff(doc: Document): void {
 
 /**
  * Keeps room at the page's foot for the question, which sits over the page fixed to the window's foot: its height and
- * the gap under it, so the end of the page can be scrolled clear of it. Kept as the question changes size (a turned
- * phone, a larger font).
+ * the gap under it, so the end of the page can be scrolled clear of it. Measured again when the window changes size
+ * (a turned phone) and once the fonts have arrived. Not a ResizeObserver: the room it sets changes the page's layout,
+ * and WebKit reports that as an observer loop.
  */
 function keepRoom(doc: Document, ask: HTMLElement): void {
+  const win = doc.defaultView
   const room = (): void => {
-    const gap = Number.parseFloat(doc.defaultView?.getComputedStyle(ask).bottom ?? '') || 0
+    const gap = Number.parseFloat(win?.getComputedStyle(ask).bottom ?? '') || 0
     doc.documentElement.style.setProperty('--ask-room', `${ask.offsetHeight + gap * 2}px`)
   }
   room()
-  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(room).observe(ask)
+  win?.addEventListener('resize', room)
+  void doc.fonts?.ready.then(room)
 }
 
 /** Shows the question on a first visit, wires its two buttons and the footer's, and adds the counter on a yes. */
