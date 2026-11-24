@@ -97,6 +97,11 @@ None yet.
   image: the same server warning shows in two shards of run 44921709194 on `main` at `8d939ad`, before the image. Not
   proven and not fixed. Next step if it shows again: find why the local workerd drops its connection under the journeys'
   load (worker count, or a request the journeys abort).
+- `look.journey.ts`, tablet-1180x820 (the live job, on `f5a7caf`, 2026-11-24): 1 of 239 failed with
+  `net::ERR_CONNECTION_RESET` loading https://automataframework.com/. Passed on the re-run (job 138671586691). The
+  reset is likely the network on the way to the live site rather than the page; not proven and not fixed. Next step
+  if it shows again: look at how often the live check's loads are reset, and whether that job should retry a reset
+  load once.
 
 ## Lessons
 
