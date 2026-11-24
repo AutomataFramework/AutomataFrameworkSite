@@ -458,7 +458,7 @@ Tests run only in GitHub-hosted CI. Every new part has:
 
 ## Done means
 
-On `main`, proven by CI, and live at `automataframework.pages.dev`:
+On `main`, proven by CI, and live at `automataframework.pages.dev` (since 2026-11-24, https://automataframework.com):
 
 - Every section above is on the page with its real thing, filled from files, its stamp held by a proof.
 - A visitor on a phone can go from arriving to a copied command or prompt in two presses.
