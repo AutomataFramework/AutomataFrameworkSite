@@ -7,8 +7,9 @@ description: "Use when working in this repo: its layout, its CI and its own rule
 
 What is particular to this repo, kept from its earlier notes and the 2026-11-16 handoff.
 
-- **The site is static files on Cloudflare Pages**, at `automataframework.pages.dev` until there is a domain (the
-  Owner, 2026-11-13). `deploy` is the only job that holds the Cloudflare token, and it never runs the game's code.
+- **The site is static files on Cloudflare Pages**, at https://automataframework.com (the Owner, 2026-11-24; a Pages
+  custom domain, so `automataframework.pages.dev` serves the same files). `deploy` is the only job that holds the
+  Cloudflare token, and it never runs the game's code.
 - **The site does not depend on the framework.** The demo game is built by its own repo
   (AutomataFrameworkExamples, `pnpm build`), copied to `/play/` and shown in a frame. The site shows the newest commit
   on the game's `main` whose checks all passed, never an unchecked one.

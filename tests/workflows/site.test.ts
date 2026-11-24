@@ -116,8 +116,9 @@ test('two deploys never run at once', () => {
   expect(deploy).toContain('concurrency:\n      group: deploy\n      cancel-in-progress: false')
 })
 
-test('the address is written once and matches the project name in wrangler.toml', () => {
-  expect(site.match(/automataframework\.pages\.dev/g)).toHaveLength(1)
+test('the address visitors use is written once, and the project name matches wrangler.toml', () => {
+  expect(site.match(/https:\/\/automataframework\.com\b/g)).toHaveLength(1)
+  expect(site).not.toContain('automataframework.pages.dev')
   const wrangler = readFileSync(new URL('../../wrangler.toml', import.meta.url), 'utf8')
   const project = /^name = "(.+)"$/m.exec(wrangler)?.[1]
   expect(project).toBe('automataframework')
