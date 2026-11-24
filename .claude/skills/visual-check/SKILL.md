@@ -32,7 +32,7 @@ The coordinator shows the screens page twice at the end of every slice: after th
 
 ## Reviews in batches
 
-When a review covers many screens or scene captures, start it in batches within the session limit in Settings, each with a fresh reviewer that reads the same named commit and still looks at every screenshot in its batch one by one; the batches together are that round's one check. Each batch's findings go to the builder by message as it finishes; the builder may start on them but pushes only after the round's last batch reports, and no batch commits its audit file before then. Tell reviewers to measure what can be measured (contrast, how much shows through a panel, sizes and positions) from the pixels, and to judge by eye only what cannot be measured. The coordinator starts the batches. This adds to the steps below and to any scene skill, and replaces nothing in them.
+When a review covers many screens or scene captures, start it in batches within the working-thread limit in Settings, each with a fresh reviewer that reads the same named commit and still looks at every screenshot in its batch one by one; the batches together are that round's one check. Each batch's findings go to the builder by message as it finishes; the builder may start on them but pushes only after the round's last batch reports, and no batch commits its audit file before then. Tell reviewers to measure what can be measured (contrast, how much shows through a panel, sizes and positions) from the pixels, and to judge by eye only what cannot be measured. The coordinator starts the batches. This adds to the steps below and to any scene skill, and replaces nothing in them.
 
 ## The steps
 

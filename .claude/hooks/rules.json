@@ -61,7 +61,7 @@
   },
   "prFlow": {
     "enabled": true,
-    "maxOpenPrs": 6
+    "maxOpenPrs": 8
   },
   "liveState": {
     "enabled": true,
