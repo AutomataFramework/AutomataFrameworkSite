@@ -197,6 +197,44 @@ test.describe('phone-390x844: with no token', () => {
   })
 })
 
+// Until it is answered, the question may cover the game's edge and nothing else of the site's may (the Owner,
+// 2026-11-24); once it is answered, nothing of the site's is over the game at all.
+test.describe('desktop-1440x900: over the game', () => {
+  test.use({ viewport: { width: 1440, height: 900 } })
+
+  test('only the unanswered question is ever over the game', async ({ page }) => {
+    const trouble = watchForTrouble(page)
+    await arrive(page)
+    await expect(notice(page)).toBeVisible()
+    // What is at points across the part of the game in the window: inside the game, or inside the question.
+    const over = () =>
+      page.evaluate(() => {
+        const game = document.querySelector('#game')
+        const ask = document.querySelector('[data-ask]')
+        const box = game?.getBoundingClientRect()
+        if (game === null || box === undefined) return ['no game']
+        const found = new Set<string>()
+        for (let y = Math.max(box.top, 0) + 4; y < Math.min(box.bottom, innerHeight) - 2; y += 24)
+          for (let x = box.left + 4; x < box.right - 2; x += 48) {
+            const at = document.elementFromPoint(x, y)
+            found.add(
+              at !== null && game.contains(at)
+                ? 'game'
+                : at !== null && ask?.contains(at)
+                  ? 'question'
+                  : 'other',
+            )
+          }
+        return [...found].sort()
+      })
+    expect(await over()).toEqual(['game', 'question'])
+    await press(page, WORDS.no)
+    await expect(notice(page)).toBeHidden()
+    expect(await over()).toEqual(['game'])
+    expect(trouble()).toEqual([])
+  })
+})
+
 // A Yes given before, on a page that has since lost its token, still adds nothing: no token, nothing to count with.
 test.describe('phone-390x844: a Yes from before, and no token now', () => {
   test.use({ viewport: { width: 390, height: 844 } })
