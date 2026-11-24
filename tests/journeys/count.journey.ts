@@ -56,25 +56,25 @@ async function watchTheWire(context: BrowserContext, site: string) {
   return { away: () => [...away], counted: () => counted, reports: () => reports }
 }
 
-/** A made-up site token: 32 hex digits, as Cloudflare's are. */
-const TOKEN = '0123456789abcdef0123456789abcdef'
+/** The site token of the Web Analytics site for automataframework.com, as the page carries it. */
+const TOKEN = 'fda104fd676344cf87fa9e1225165470'
 
 /**
- * Serves the home page with a counter token in it, for every page of the visit. The site is served with an empty token
- * until Cloudflare's site for it exists, so the journeys of a question that is answered put one in, the way the real
- * token will be: in the page's `automata-counter-token` meta, with the site's own headers kept.
+ * Serves the home page with its counter token taken out, for every page of the visit: the page as it would be served
+ * with no Cloudflare site behind it, which must ask nothing and add nothing. The site's own headers are kept.
  */
-async function withToken(context: BrowserContext): Promise<void> {
+async function withoutToken(context: BrowserContext): Promise<void> {
   await context.route(
     (url) => url.pathname === '/',
     async (route) => {
       const response = await route.fetch()
-      const body = (await response.text()).replace(
-        '<meta name="automata-counter-token" content="" />',
-        `<meta name="automata-counter-token" content="${TOKEN}" />`,
-      )
-      expect(body, 'the page carries the token').toContain(TOKEN)
-      await route.fulfill({ response, body })
+      const served = await response.text()
+      const tag = `<meta name="automata-counter-token" content="${TOKEN}" />`
+      expect(served, 'the page as served carries the token').toContain(tag)
+      await route.fulfill({
+        response,
+        body: served.replace(tag, '<meta name="automata-counter-token" content="" />'),
+      })
     },
   )
 }
@@ -104,7 +104,6 @@ for (const size of SIZES) {
     }) => {
       const trouble = watchForTrouble(page)
       const wire = await watchTheWire(page.context(), new URL(baseURL ?? '').origin)
-      await withToken(page.context())
       await arrive(page)
       await expect(notice(page)).toBeVisible()
       await expect(notice(page).getByRole('heading')).toHaveText(WORDS.question)
@@ -142,14 +141,15 @@ for (const size of SIZES) {
   })
 }
 
-// As served until Cloudflare's site for it exists: no token, so nothing is asked, nothing can be switched on, and
-// nothing leaves the site, even with the game playing itself.
+// With no token in the page there is nothing to count with: nothing is asked, nothing can be switched on, and nothing
+// leaves the site, even with the game playing itself.
 test.describe('phone-390x844: with no token', () => {
   test.use({ viewport: { width: 390, height: 844 } })
 
   test('nothing is asked and nothing leaves the site', async ({ page, baseURL }) => {
     const trouble = watchForTrouble(page)
     const wire = await watchTheWire(page.context(), new URL(baseURL ?? '').origin)
+    await withoutToken(page.context())
     await arrive(page)
     await untilWatching(page)
     await expect(notice(page)).toBeHidden()
@@ -171,7 +171,6 @@ test.describe('desktop-1440x900: the answer', () => {
   }) => {
     const trouble = watchForTrouble(page)
     const wire = await watchTheWire(page.context(), new URL(baseURL ?? '').origin)
-    await withToken(page.context())
     await arrive(page)
     await press(page, WORDS.no)
     await expect(notice(page)).toBeHidden()
@@ -189,7 +188,6 @@ test.describe('desktop-1440x900: the answer', () => {
   test('Yes adds the counter once, and once again when they come back', async ({ page, baseURL }) => {
     const trouble = watchForTrouble(page)
     const wire = await watchTheWire(page.context(), new URL(baseURL ?? '').origin)
-    await withToken(page.context())
     await arrive(page)
     expect(wire.counted()).toBe(0)
     await press(page, WORDS.yes)
@@ -199,6 +197,11 @@ test.describe('desktop-1440x900: the answer', () => {
     // Only Cloudflare's two addresses, nobody else.
     expect(wire.away().every((url) => COUNTER.test(url) || REPORT.test(url))).toBe(true)
     await expect(page.locator('script[src*="cloudflareinsights"]')).toHaveCount(1)
+    // The counter is told which site it counts for: the site's own token, as Cloudflare's script reads it.
+    await expect(page.locator('script[src*="cloudflareinsights"]')).toHaveAttribute(
+      'data-cf-beacon',
+      JSON.stringify({ token: TOKEN }),
+    )
     expect(trouble()).toEqual([])
     const back = await comeBack(page.context())
     await expect(notice(back.page)).toBeHidden()
@@ -212,7 +215,6 @@ test.describe('desktop-1440x900: the answer', () => {
   test('the footer changes the answer both ways', async ({ page, baseURL }) => {
     const trouble = watchForTrouble(page)
     const wire = await watchTheWire(page.context(), new URL(baseURL ?? '').origin)
-    await withToken(page.context())
     await arrive(page)
     await press(page, WORDS.yes)
     await expect.poll(wire.reports).toBe(1)
