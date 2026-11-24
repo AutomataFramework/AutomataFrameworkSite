@@ -37,7 +37,7 @@ async function watchTheWire(context: BrowserContext, site: string) {
     counted++
     return route.fulfill({
       contentType: 'text/javascript',
-      body: "fetch('https://cloudflareinsights.com/cdn-cgi/rum', { method: 'POST', body: '{}', keepalive: true })",
+      body: "fetch('https://cloudflareinsights.com/cdn-cgi/rum', { method: 'POST', body: '{}' })",
     })
   })
   await context.route(REPORT, (route) => {
