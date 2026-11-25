@@ -28,7 +28,7 @@ export const WORDS = {
     'A game is small files with plain names. Your agent finds the right one, changes it, and the game changes.',
     'Where each level sits on the map is one small file. Walk through a door into another level, or run across the edge where two levels touch.',
     // After the number of recorded plays, which is a fact.
-    ' Every time the game changes, each recorded play runs again in four places. All four have to end the same way, or the change does not pass.',
+    ' Every time your AI helper changes the game, each recorded play is replayed in four places. If a change breaks something, it does not pass.',
   ],
   points: [
     'You can read it. Each # is a wall and each dot is air.',
@@ -50,8 +50,8 @@ export const WORDS = {
     { name: 'Licences', href: '/licences.txt' },
   ],
   numbersTail: [
-    ' play the game exactly the same way',
-    'of recorded play, run again every time the game changes',
+    ' each replay the game to check it',
+    'of recorded play, replayed every time your AI helper changes the game',
     "hold all of the game's content",
     'licensed and free to use',
   ],
