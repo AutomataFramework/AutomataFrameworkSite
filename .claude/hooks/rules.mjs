@@ -20,7 +20,7 @@
 // setting and never adds an entry twice. `node rules.mjs --print-setup` prints the same
 // installer as a cloud environment setup script that needs no repo and never fails.
 
-import { readFileSync, writeFileSync, existsSync, statSync, readdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, statSync, readdirSync, lstatSync, linkSync, mkdirSync, unlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -219,7 +219,7 @@ function parseShell(src) {
         endCmd();
         i += op.length;
         if (op === '\n') readHeredocBodies();
-        if (op === '(') { const inner = parseList(true); out.push(...inner); }
+        if (op === '(') { const inner = parseList(true); for (const c of inner) c.subshell = true; out.push(...inner); }
         continue;
       }
       start(); word += ch; i++;
@@ -241,9 +241,10 @@ const PNPM_OWN = new Set(['add', 'install', 'i', 'remove', 'rm', 'update', 'up',
 const SHELL_WORDS = new Set(['do', 'then', 'else', 'elif', 'if', 'while', 'until', '!', '{', 'coproc', 'time']);
 // Turns parsed commands into checkable ones: wrappers peeled, inline env split off,
 // `bash -c` and `eval` read again, `cd` and `export` carried to later commands.
-function simpleCommands(src, baseCwd, depth = 0) {
+function simpleCommands(src, baseCwd, depth = 0, unk = false) {
   const result = [];
   let cwd = baseCwd;
+  let unknown = unk; // the folder is no longer known: a cd the hook cannot follow (stage 2, S2.1)
   const exported = {};
   for (const c of parseShell(src)) {
     let words = [...c.words];
@@ -266,14 +267,14 @@ function simpleCommands(src, baseCwd, depth = 0) {
         continue;
       }
       if (w === 'sudo' || w === 'doas') { words.shift(); while (words[0]?.startsWith('-')) { const f = words.shift(); if (f === '--') break; if (/^-[ugpChDrtURC]$/.test(f) || /^--(user|group|host|prompt|chdir|close-from|role|type|other-user)$/.test(f)) words.shift(); } continue; }
-      if (w === 'flock') { const ci = words.findIndex((x, k) => k > 0 && (x === '-c' || x === '--command')); if (ci !== -1 && words[ci + 1] !== undefined) { result.push(...simpleCommands(words[ci + 1], cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } words.shift(); while (words[0]?.startsWith('-')) { const f = words.shift(); if (/^(-w|--timeout|-E|--conflict-exit-code)$/.test(f)) words.shift(); } words.shift(); continue; }
+      if (w === 'flock') { const ci = words.findIndex((x, k) => k > 0 && (x === '-c' || x === '--command')); if (ci !== -1 && words[ci + 1] !== undefined) { result.push(...simpleCommands(words[ci + 1], cwd, depth + 1, unknown).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } words.shift(); while (words[0]?.startsWith('-')) { const f = words.shift(); if (/^(-w|--timeout|-E|--conflict-exit-code)$/.test(f)) words.shift(); } words.shift(); continue; }
       if (w === 'nohup' || w === 'command' || w === 'exec' || w === 'stdbuf' || w === 'setsid' || w === 'unbuffer') { words.shift(); while (words[0]?.startsWith('-')) words.shift(); continue; }
-      if (w === 'script') { const ci = words.findIndex((x, k) => k > 0 && (/^-\w*c$/.test(x) || x === '--command')); const eq = words.find((x) => x.startsWith('--command=')); if (eq) { result.push(...simpleCommands(eq.slice(10), cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } if (ci !== -1 && words[ci + 1] !== undefined) { result.push(...simpleCommands(words[ci + 1], cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } }
+      if (w === 'script') { const ci = words.findIndex((x, k) => k > 0 && (/^-\w*c$/.test(x) || x === '--command')); const eq = words.find((x) => x.startsWith('--command=')); if (eq) { result.push(...simpleCommands(eq.slice(10), cwd, depth + 1, unknown).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } if (ci !== -1 && words[ci + 1] !== undefined) { result.push(...simpleCommands(words[ci + 1], cwd, depth + 1, unknown).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } }
       if (w === 'env') { words.shift(); while (words.length && (words[0].startsWith('-') || ENV_WORD.test(words[0]))) { const x = words.shift(); if (ENV_WORD.test(x)) { const [k, ...v] = x.split('='); env[k] = v.join('='); } else if (/^(-[A-Za-z]*S|--split-string)/.test(x)) envSplit = true; } continue; }
       if (w === 'timeout') { words.shift(); while (words[0]?.startsWith('-')) words.shift(); words.shift(); continue; }
       if (w === 'busybox' || w === 'builtin') { words.shift(); continue; } // busybox sh, builtin command gh: the program follows
       // su -c runs its string as a shell command, like bash -c.
-      if (w === 'su' || w === 'runuser') { const ci = words.findIndex((x, k) => k > 0 && (x === '-c' || x === '--command')); const eq = words.find((x) => x.startsWith('--command=')); const s = eq ? eq.slice(10) : ci !== -1 ? words[ci + 1] : undefined; if (s !== undefined) { result.push(...simpleCommands(s, cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } }
+      if (w === 'su' || w === 'runuser') { const ci = words.findIndex((x, k) => k > 0 && (x === '-c' || x === '--command')); const eq = words.find((x) => x.startsWith('--command=')); const s = eq ? eq.slice(10) : ci !== -1 ? words[ci + 1] : undefined; if (s !== undefined) { result.push(...simpleCommands(s, cwd, depth + 1, unknown).map((x) => ({ ...x, env: { ...env, ...x.env } }))); words.length = 0; break; } }
       // find -exec/-execdir/-ok runs the command after it once per file: judge that command.
       if (w === 'find') { const k = words.findIndex((x) => /^-(exec|execdir|ok|okdir)$/.test(x)); if (k === -1) break; const end = words.findIndex((x, j) => j > k && (x === ';' || x === '+')); words = words.slice(k + 1, end === -1 ? undefined : end); continue; }
       if (w === 'xargs') { xargs = true; words.shift(); while (words[0]?.startsWith('-')) { const f = words.shift(); if (/^-[IdLnPsE]$/.test(f)) words.shift(); } continue; }
@@ -316,8 +317,8 @@ function simpleCommands(src, baseCwd, depth = 0) {
       const ci = words.indexOf('-c');
       // The variables set in front of the shell reach what it runs (BASH_ENV=x bash -c ...).
       const inherit = (x) => ({ ...x, env: { ...env, ...x.env } });
-      if (ci !== -1 && words[ci + 1] !== undefined) { result.push(...simpleCommands(words[ci + 1], cwd, depth + 1).map(inherit)); continue; }
-      if (c.heredoc !== null && words.slice(1).every((x) => x.startsWith('-'))) { result.push(...simpleCommands(c.heredoc, cwd, depth + 1).map(inherit)); continue; }
+      if (ci !== -1 && words[ci + 1] !== undefined) { result.push(...simpleCommands(words[ci + 1], cwd, depth + 1, unknown).map(inherit)); continue; }
+      if (c.heredoc !== null && words.slice(1).every((x) => x.startsWith('-'))) { result.push(...simpleCommands(c.heredoc, cwd, depth + 1, unknown).map(inherit)); continue; }
       if (c.heredoc === null && words.slice(1).every((x) => x.startsWith('-'))) { unreadable(`${prog} reading its commands from a pipe or a process substitution`); continue; }
     }
     // A shell script file is read too, so a command in it is judged like one typed here.
@@ -332,17 +333,23 @@ function simpleCommands(src, baseCwd, depth = 0) {
       const text = file ? readText(resolve(cwd, file.replace(/^~(?=\/)/, process.env.HOME ?? '~'))) : null;
       if (file && text === null) { unreadable(`the script ${file} cannot be read before it runs`); continue; }
       if (text !== null) runs = resolve(cwd, file.replace(/^~(?=\/)/, process.env.HOME ?? '~'));
-      if (text !== null) result.push(...simpleCommands(text, cwd, depth + 1).map((x) => ({ ...x, env: { ...env, ...x.env }, fromScript: file })));
+      if (text !== null) result.push(...simpleCommands(text, cwd, depth + 1, unknown).map((x) => ({ ...x, env: { ...env, ...x.env }, fromScript: file })));
     }
     // eval joins its words and runs the result, which loses what the parser saw: refused, never read again.
     if (prog === 'eval' && words.length > 1) { unreadable('eval, which runs text the shell builds'); continue; }
-    if (prog === 'cd' && !c.nested) { const to = words[1]; if (to && !to.startsWith('-')) cwd = isAbsolute(to) ? to : resolve(cwd, to.replace(/^~(?=\/|$)/, process.env.HOME ?? '~')); continue; }
+    if (prog === 'pushd' || prog === 'popd' || (prog === 'cd' && (c.nested || c.subshell))) { unknown = true; if (prog === 'cd') continue; }
+    if (prog === 'cd' && !c.nested) {
+      const to = words[1];
+      if (!to || to.startsWith('-') || /[*?[{$`]|^~[^/]/.test(to)) unknown = true;
+      else cwd = isAbsolute(to) ? to : resolve(cwd, to.replace(/^~(?=\/|$)/, process.env.HOME ?? '~'));
+      continue;
+    }
     if (prog === 'export' && !c.nested) {
       for (const w of words.slice(1)) if (ENV_WORD.test(w)) { const [k, ...v] = w.split('='); exported[k] = v.join('='); }
       result.push({ prog, path: words[0], args: words.slice(1), env, cwd, heredoc: null, redirects: c.redirects ?? [], inputs: c.inputs ?? [] }); // the checks read export too
       continue;
     }
-    result.push({ prog, path: words[0], args: words.slice(1), env, cwd, heredoc: c.heredoc, heredocQuoted: c.heredocQuoted === true, redirects: c.redirects ?? [], inputs: c.inputs ?? [], ...(xargs ? { xargs } : {}), ...(runs ? { runs } : {}) });
+    result.push({ prog, path: words[0], args: words.slice(1), env, cwd, heredoc: c.heredoc, heredocQuoted: c.heredocQuoted === true, redirects: c.redirects ?? [], inputs: c.inputs ?? [], ...(xargs ? { xargs } : {}), ...(runs ? { runs } : {}), ...(unknown ? { cwdUnknown: true } : {}) });
   }
   return result;
 }
@@ -1741,6 +1748,162 @@ function checkGitRuns(cmd, config, deny) {
     if (key && !GIT_SAFE_KEY.test(key)) deny(refusal(ROUTE_RULE, `git config ${key}, a setting that can make git run another program`, 'leave it; list it as a command for the owner if it is needed'));
   }
 }
+// ---------- hook round 2, stage 2: judge what git and gh will read, when they run ----------
+
+// Keys real tools write into a repo's own config (gh repo set-default, git sparse-checkout, git worktree add).
+const TOOL_KEY = /^(remote\.[^.]+\.gh-resolved|core\.sparsecheckout(cone)?|extensions\.worktreeconfig)$/i;
+const lookFile = (sid) => join(lookDir(), `${String(sid ?? 'none').replace(/[^\w-]/g, '')}.json`);
+// git config --list as git reads it: every file, every include, each entry with its scope (the -z form is NUL-split: scope, origin, key\nvalue).
+function configEntries(cwd) {
+  const r = run('git', ['config', '--list', '--show-scope', '--show-origin', '--includes', '-z'], { cwd });
+  if (!r.ok) return null;
+  const parts = r.out.split('\0');
+  const out = [];
+  for (let i = 0; i + 2 < parts.length + 1 && parts[i] !== undefined && parts[i + 2] !== undefined; i += 3) {
+    const [key, ...v] = parts[i + 2].split('\n');
+    out.push({ scope: parts[i], origin: parts[i + 1], key, value: v.join('\n') });
+  }
+  return out;
+}
+// The session's first look at git's global and system settings, made once at the session's first event and never changed.
+function takeFirstLook(sid, cwd) {
+  const e = configEntries(existsSync(cwd) ? cwd : tmpdir());
+  if (!e) return;
+  const entries = e.filter((x) => (x.scope === 'global' || x.scope === 'system') && !GIT_SAFE_KEY.test(x.key)).map((x) => `${x.key}=${x.value}`);
+  const file = lookFile(sid), tmp = `${file}.${process.pid}`;
+  try {
+    mkdirSync(lookDir(), { recursive: true });
+    writeFileSync(tmp, JSON.stringify({ entries }), { flag: 'wx' });
+    linkSync(tmp, file); // fails when the file exists: it is never replaced
+  } catch { /* already there, or the folder cannot be written: the gate says so at the next git or gh call */ }
+  try { unlinkSync(tmp); } catch { /* none */ }
+}
+const readFirstLook = (sid) => { try { return JSON.parse(readFileSync(lookFile(sid), 'utf8')); } catch { return null; } };
+const isLink = (p) => { try { return lstatSync(p).isSymbolicLink(); } catch { return false; } };
+// What could make git run a program in this repo: a hook, a config key, a link in place of the hooks or .git.
+function repoProblem(cwd, look) {
+  // Outside a repo only the global and system settings are read (a clone or ls-remote runs them too).
+  const top = run('git', ['rev-parse', '--show-toplevel'], { cwd });
+  if (top.ok) {
+    const hooks = run('git', ['rev-parse', '--git-path', 'hooks'], { cwd });
+    const gitDir = run('git', ['rev-parse', '--git-dir'], { cwd });
+    const dir = hooks.ok ? resolve(cwd, hooks.out) : null;
+    if (isLink(join(top.out, '.git')) || (gitDir.ok && isLink(resolve(cwd, gitDir.out)))) return `${join(top.out, '.git')}, which is a link`;
+    if (dir && isLink(dir)) return `${dir}, which is a link`;
+    if (dir) { let names = []; try { names = readdirSync(dir); } catch { /* no hooks folder */ } const bad = names.find((n) => !n.endsWith('.sample')); if (bad) return `the git hook ${join(dir, bad)}`; }
+  }
+  const entries = configEntries(cwd);
+  if (!entries) return 'git config, which cannot be read';
+  const seen = new Set(look?.entries ?? []);
+  for (const x of entries) {
+    if (x.scope === 'command') continue;
+    const safe = GIT_SAFE_KEY.test(x.key) || TOOL_KEY.test(x.key);
+    if (x.scope === 'global' || x.scope === 'system') { if (!safe && !seen.has(`${x.key}=${x.value}`)) return `the git setting ${x.key} in ${x.origin}, which was not there when this session began`; continue; }
+    if (!safe || (/\.(url|pushurl)$/i.test(x.key) && /^ext::/.test(x.value))) return `the git setting ${x.key} in ${x.origin}`;
+  }
+  return null;
+}
+// gh runs the program a pager, browser, editor or socket key names, in any of its files.
+function ghProblem() {
+  const base = process.env.XDG_CONFIG_HOME || join(process.env.HOME ?? '', '.config');
+  for (const f of ['config.yml', 'hosts.yml']) {
+    const text = readText(join(base, 'gh', f));
+    const hit = text && lines(text).find((l) => { const m = /^\s*(pager|browser|editor|http_unix_socket)\s*:\s*(.*?)\s*(#.*)?$/.exec(l); return m && m[2].replace(/^(['"])(.*)\1$/, '$2') !== ''; });
+    if (hit) return `${join(base, 'gh', f)} (${hit.trim()})`;
+  }
+  return null;
+}
+const FILLED = /[*?[{$`]|^~[^/]/;
+// The folder a git call acts in, or null when a -C target or an earlier cd holds a part the shell fills in.
+function gitFolder(cmd) {
+  if (cmd.cwdUnknown) return null;
+  const a = cmd.args;
+  for (let i = 0; i < a.length && a[i].startsWith('-'); i += GIT_GLOBAL_WITH_VALUE.has(a[i]) ? 2 : 1) if (a[i] === '-C' && FILLED.test(a[i + 1] ?? '')) return null;
+  return gitParts(cmd).cwd;
+}
+const tracked = (cwd, file) => { const f = resolve(cwd, file); const d = dirname(f); return existsSync(d) && run('git', ['ls-files', '--error-unmatch', '--', f], { cwd: d }).ok && run('git', ['diff', '--quiet', 'HEAD', '--', f], { cwd: d }).ok; };
+const INLINE_FLAG = { node: /^(-e|-p|-pe|-ep|--eval|--print)$|^--(eval|print)=/, bun: /^(-e|--eval)$/, python: /^-[A-Za-z]*c$/, perl: /^-[A-Za-z]*[eE]$/, ruby: /^-[A-Za-z]*e$/, php: /^-r$/ };
+const interpreterKind = (p) => { const k = p.replace(/[\d.]+$/, ''); return k === 'nodejs' ? 'node' : k === 'pypy' ? 'python' : k; };
+// Where a recursive copy, an unpack or a sync puts a whole tree (null when the command puts none).
+function copiesInto(c) {
+  const a = c.args;
+  const ops = operandsOf(a, /^-[tSTZCdo]$/);
+  const into = flagValues(a, ['-t', '--target-directory'])[0];
+  if (c.prog === 'cp') return a.some((w) => /^-[A-Za-z]*[rRa]|^--(recursive|archive)$/.test(w)) ? into ?? ops.at(-1) ?? null : null;
+  if (c.prog === 'rsync') return a.some((w) => /^-[A-Za-z]*[ra]|^--(recursive|archive)$/.test(w)) ? ops.at(-1) ?? null : null;
+  if (c.prog === 'tar') {
+    const first = a[0] ?? '';
+    if (!(/^-?[A-Za-z]*x/.test(first) || a.some((w) => /^--(extract|get)$/.test(w)))) return null;
+    return a.flatMap((w, i) => (w === '-C' || w === '--directory' ? [a[i + 1]] : /^--directory=/.test(w) ? [w.slice(12)] : /^-C./.test(w) ? [w.slice(2)] : []))[0] ?? '.';
+  }
+  if (c.prog === 'unzip') return flagValues(a, ['-d'])[0] ?? '.';
+  return null;
+}
+// A folder that is a repo's top, one above a repo's top (the call's own repo, or the one the folder is in), or inside a .git folder.
+function intoRepo(cwd, p) {
+  const r = realPath(cwd, p).replace(/\/+$/, '') || '/';
+  if (/(^|\/)\.git(\/|$)/.test(r)) return true;
+  const tops = [repoTop(cwd), existsSync(r) ? repoTop(r) : null];
+  return tops.some((t) => t && (t === r || `${t}/`.startsWith(`${r}/`)));
+}
+// A write another command in the call makes that git or gh would then read, and that the gate cannot see before the call.
+function hiddenWrite(text, cmds) {
+  if (/\b(npx|pnpx|bunx|pnpm\s+dlx|bun\s+x)\b[^;&|\n]*--package[=\s]+['"]?[./~]/.test(text)) return 'npx or pnpm dlx with a package from a local path';
+  if (/(^|[\s;&|(])bun\s+(-e|--eval)\b/.test(text)) return 'bun with its code on the command line'; // the parser reads bun as a package runner
+  for (const c of cmds) {
+    if (c.prog === 'git' || c.prog === 'gh') continue;
+    if (c.prog === 'ln') return 'ln';
+    if (c.prog === 'find' && c.args.some((w) => FIND_ACTS.test(w))) return 'find with an action';
+    let targets = writeTargets(c);
+    // sed -i: the first operand is its script, not a file, unless -e or -f gave the script.
+    if (c.prog === 'sed') {
+      const n = (c.redirects ?? []).filter((r) => r && !/^(\d+|-|\/dev\/(null|stdout|stderr))$/.test(r)).length;
+      const given = c.args.some((w) => /^-[A-Za-z]*[ef]$|^--(expression|file)/.test(w));
+      targets = given ? targets : [...targets.slice(0, n), ...targets.slice(n + 1)];
+    }
+    const fill = targets.find((t) => FILLED.test(t));
+    if (fill !== undefined) return `${c.prog} writing ${fill}, a path the shell fills in`;
+    const into = copiesInto(c);
+    if (into !== null && intoRepo(c.cwd, into)) return `${c.prog} putting a whole tree into ${into}, a repo's top folder, a folder above one, or a .git folder`;
+    const kind = interpreterKind(c.prog);
+    if (kind in INLINE_FLAG && scriptTool(c.prog) && c.args.some((w) => INLINE_FLAG[kind].test(w))) return `${c.prog} with its code on the command line`;
+    if (kind === 'deno' && c.args[0] === 'eval') return 'deno eval';
+    if (scriptTool(c.prog) && c.heredoc !== null && c.heredoc !== undefined) return `${c.prog} fed a heredoc`;
+    if (scriptTool(c.prog) && c.args.length) {
+      const file = operandsOf(c.args, /^-(r|m|W|X|I|-import|-require|-loader)$/)[0];
+      if (c.args.includes('-m') || (file !== undefined && !tracked(c.cwd, file))) return `${c.prog} running ${file ?? 'a module'}, a script git does not track unchanged`;
+    }
+    if (c.runs && !tracked(c.cwd, c.runs)) return `${c.prog} running ${c.runs}, a script git does not track unchanged`;
+  }
+  return null;
+}
+function checkGate(text, cmds, config, deny, ctx) {
+  if (config.routes?.enabled === false) return;
+  // A git or gh call inside a script is read with the script (and the script itself is judged below), so only calls typed here count.
+  const runs = cmds.filter((c) => (c.prog === 'git' || c.prog === 'gh') && !c.fromScript);
+  if (!runs.length) return;
+  const gate = (what, instead) => deny(refusal(ROUTE_RULE, what, instead));
+  const hidden = hiddenWrite(text, cmds);
+  if (hidden) return gate(`${hidden}, beside git or gh, which could write a file they then read`, 'run it in its own call, before or after the git or gh call');
+  const folders = new Set();
+  for (const c of runs) {
+    const f = c.prog === 'git' ? gitFolder(c) : c.cwd;
+    if (f === null || (c.prog === 'gh' && c.cwdUnknown)) { if (c.prog === 'git') return gate('git in a folder the hook cannot know (a cd or -C target the shell fills in, or a nested cd, pushd or popd)', 'write the folder out, or run git with -C and a written-out path'); continue; }
+    if (existsSync(f)) folders.add(f);
+  }
+  // A session that began before this hook has no first look: it is taken at the first git or gh call, where it is still missing.
+  if (!readFirstLook(ctx.sessionId)) takeFirstLook(ctx.sessionId, [...folders][0] ?? ctx.root ?? tmpdir());
+  const look = readFirstLook(ctx.sessionId);
+  if (!look) return gate("the hook's first look at git's settings could not be made", 'report it; git and gh wait for a new session');
+  if (!folders.size) folders.add(tmpdir()); // no repo known: the global and system settings are still judged
+  for (const f of folders) {
+    const why = repoProblem(f, look);
+    if (why) return gate(`${why} could make git run a program`, 'leave it as it is and report it');
+  }
+  const why = runs.some((c) => c.prog === 'gh') ? ghProblem() : null;
+  if (why) gate(`${why} could make gh run a program`, 'leave it as it is and report it');
+}
+
 // make and its kin run the recipes in a file: read that file like a script.
 const MAKE_PROGS = new Set(['make', 'gmake', 'just', 'task', 'rake']);
 const MAKE_DEFAULTS = ['GNUmakefile', 'makefile', 'Makefile', 'justfile', 'Justfile', '.justfile', 'Taskfile.yml', 'Rakefile'];
@@ -2177,6 +2340,7 @@ function preToolUse(root, config, input, ctx) {
     checkBashText(String(ti.command ?? ''), cmds, base, deny);
     if (!reasons.length) checkWrittenScripts(cmds, base, deny);
     if (!reasons.length) checkStage1(String(ti.command ?? ''), cmds, base, deny);
+    if (!reasons.length) checkGate(String(ti.command ?? ''), cmds, base, deny, ctx);
     for (const cmd of reasons.length ? [] : cmds) {
       checkOtherRoutes(cmd, base, deny, { ...ctx, root });
       if (!reasons.length) checkGitRuns(cmd, base, deny);
@@ -2401,6 +2565,7 @@ function main() {
   if (!roots.length) return;
   const ctx = { sessionId: input.session_id, root: roots[0] };
   if (event === 'SessionStart') {
+    takeFirstLook(input.session_id, input.cwd ?? roots[0]);
     const texts = [];
     for (const root of roots) {
       const { config, error } = loadConfig(root);
