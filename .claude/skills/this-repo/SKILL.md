@@ -50,6 +50,13 @@ What is particular to this repo, kept from its earlier notes and the 2026-11-16 
 - **The fonts' and icons' licence notices** are in `public/licences.txt` (the Owner, 2026-11-14), served at
   `/licences.txt`. Move a font or icon package to a new version, and copy its `LICENSE` there again.
 
+## Owner rules here
+
+The owner's own rules for this repo, beside the ones in CLAUDE.md (they are not on the workflow page, so they live here, as CLAUDE.md says).
+
+- CI speed (the owner, 2026-11-21): a job that drives a browser runs in Playwright's own image for the locked version, pinned by digest, and installs no browser or system library (`playwright install` and `install-deps` hung on the runner's package mirror until the job's timeout). A draft runs the whole Node suite when it takes under 30 seconds in CI; picking tests by the change (`--changed`) is only for a longer suite. The rest of making CI fast is in `release`.
+- **An app, not a web page.** Every screen of an app (every editor) behaves like an app on a touch screen: holding words outside a field picks nothing, the page never scrolls or bounces (only a part meant to scroll does, and it keeps the swipe to itself), a tap or a hold lights no grey box (the keyboard focus ring stays) and opens no browser menu, two quick taps never zoom, a pinch zooms only a part meant to zoom (such as a level or the world map) and never the page, and nothing drags off as a picture; a field still lets its words be picked. A repo with app screens checks it by a program on every screen, named in its `this-repo` skill.
+
 ## Fast CI here
 
 - Set up in `.github/workflows/ci.yml` and the `journeys.yml` it calls. A draft runs the whole Node suite
