@@ -24,8 +24,8 @@ const makeRepo = (dir, slug) => {
   const config = JSON.parse(readFileSync(join(here, 'rules.json'), 'utf8'))
   config.repo = slug
   // The same repo under the organization's name: guarded, and judged by this repo's own rules.
-  config.guardOwners = ['mcthaydt', 'automata-framework']
-  config.repoAliases = [`automata-framework/${slug.split('/')[1]}`]
+  config.guardOwners = ['mcthaydt', 'automata-framework', 'AutomataFramework']
+  config.repoAliases = [`automata-framework/${slug.split('/')[1]}`, `AutomataFramework/${slug.split('/')[1]}`]
   writeFileSync(join(dir, '.claude', 'hooks', 'rules.json'), JSON.stringify(config))
   writeFileSync(
     join(dir, 'CLAUDE.md'),
@@ -90,6 +90,12 @@ const baseTable = (openCount) => ({
   'repos/mcthaydt/Two/pulls': open(openCount),
   'repos/automata-framework/One/pulls': open(openCount),
   'repos/automata-framework/One/pulls/7': {
+    number: 7,
+    state: 'closed',
+    head: { ref: 'feature', sha: 'abc1234' },
+  },
+  'repos/AutomataFramework/One/pulls': open(openCount),
+  'repos/AutomataFramework/One/pulls/7': {
     number: 7,
     state: 'closed',
     head: { ref: 'feature', sha: 'abc1234' },
@@ -259,8 +265,9 @@ test('a call that names another repo is judged by that repo, even from a folder 
 
 test('the shipped rules.json guards both owners and names the organization spelling of this repo', () => {
   const real = JSON.parse(readFileSync(join(here, 'rules.json'), 'utf8'))
-  assert.deepEqual(real.guardOwners, ['mcthaydt', 'automata-framework'])
-  assert.deepEqual(real.repoAliases, [`automata-framework/${real.repo.split('/')[1]}`])
+  assert.deepEqual(real.guardOwners, ['mcthaydt', 'automata-framework', 'AutomataFramework'])
+  const name = real.repo.split('/')[1]
+  assert.deepEqual(real.repoAliases, [`automata-framework/${name}`, `AutomataFramework/${name}`])
 })
 
 test('a call that names the organization spelling of this repo is judged by this repo, not refused as no checkout', () => {
@@ -308,6 +315,44 @@ test('a squash merge, a rebase merge and a force push naming the organization sp
   const force = bash('git push --force git@github.com:automata-framework/One.git feature')
   assert.equal(force.denied, true)
   assert.match(force.reason, /force/i)
+})
+
+// Org move stage 1b: the organization was renamed to AutomataFramework. The hook lower-cases names, but
+// automataframework is not automata-framework, so the new name is guarded and aliased on its own.
+test('the renamed organization (AutomataFramework) is guarded, and its spelling of this repo is judged by this repo', () => {
+  const input = {
+    owner: 'AutomataFramework',
+    repo: 'One',
+    title: 't',
+    head: 'feature',
+    base: 'main',
+    draft: true,
+    body: body(),
+  }
+  assert.equal(mcp('mcp__github__create_pull_request', input).denied, false)
+  assert.match(mcp('mcp__github__create_pull_request', input, { table: baseTable(LIMIT) }).reason, atMost)
+  const reopen = { owner: 'AutomataFramework', repo: 'One', pullNumber: 7, state: 'open' }
+  assert.match(mcp('mcp__github__update_pull_request', reopen, { table: baseTable(LIMIT) }).reason, atMost)
+  const ghCreate = bash(
+    `gh pr create -R AutomataFramework/One --draft --title t --body-file ${join(repo, 'missing.md')}`,
+  )
+  assert.match(ghCreate.reason, /cannot be read/)
+  assert.doesNotMatch(bash('gh pr edit 7 -R AutomataFramework/One --body x').reason, /no checkout here/)
+  assert.doesNotMatch(bash('gh pr merge 7 --merge -R AutomataFramework/One').reason, /no checkout here/)
+  const merge = { owner: 'AutomataFramework', repo: 'One', pullNumber: 7, merge_method: 'merge' }
+  assert.doesNotMatch(mcp('mcp__github__merge_pull_request', merge).reason, /no checkout here/)
+  const squash = mcp('mcp__github__merge_pull_request', { ...merge, merge_method: 'squash' })
+  assert.equal(squash.denied, true)
+  assert.match(squash.reason, /merge commit|squash/i)
+  assert.equal(bash('gh pr merge 7 --squash -R AutomataFramework/One').denied, true)
+  assert.equal(bash('gh pr merge 7 --rebase -R AutomataFramework/One').denied, true)
+  const force = bash('git push --force git@github.com:AutomataFramework/One.git feature')
+  assert.equal(force.denied, true)
+  assert.match(force.reason, /force/i)
+  // Another repo of the organization, with no checkout here and no alias: guarded, so refused as no checkout.
+  const noClone = { owner: 'AutomataFramework', repo: 'Three', pullNumber: 1, merge_method: 'merge' }
+  assert.match(mcp('mcp__github__merge_pull_request', noClone).reason, /no checkout here/)
+  assert.match(bash('gh pr merge 1 --merge -R AutomataFramework/Three').reason, /no checkout here/)
 })
 
 test('routes the hooks cannot read are refused: raw HTTP, scripts, aliases, extensions, GraphQL', () => {
