@@ -11,20 +11,34 @@ The Automata Framework website: a static home page, built by Vite into `dist/`, 
 
 From a clean checkout in a cloud container, in order. First pick the Node version (or other runtime) that `engines` in `package.json` asks for. Then install, build, and start every stand-in for an outside service (a database, payments, mail, sign-in), never the real one.
 
-`engines` asks for Node 24; the container's default `node` is 22, so every command runs with `export PATH=/opt/node24/bin:$PATH`. That folder has no `pnpm`: `pnpm` is `/opt/node22/bin/pnpm`, still on the PATH after the line above, and it runs under the Node 24 first on the PATH (`pnpm exec node -v` prints v24). The site has no database, payments, mail or sign-in. The game in the frame is the stand-in in `tests/fixtures/game`, unless `GAME_SOURCE` names another game's repo folder. The server is `wrangler pages dev`, which serves `dist/` the way Cloudflare Pages does, with no account, as `playwright.config.ts` does.
+`engines` asks for Node 24; the container's default `node` is 22, so every `pnpm` command runs with `export PATH=/opt/node24/bin:$PATH` in the same call (never beside `git` or `curl`). That folder has no `pnpm`: `pnpm` is `/opt/node22/bin/pnpm`, still on the PATH after the line above, and it runs under the Node 24 first on the PATH (`pnpm exec node -v` prints v24). The site has no database, payments, mail or sign-in. The game in the frame is the stand-in in `tests/fixtures/game`, unless `GAME_SOURCE` names another game's repo folder. The server is `wrangler pages dev`, which serves `dist/` the way Cloudflare Pages does, with no account, as `playwright.config.ts` does.
 
 Start clean from a fresh clone in the scratchpad, never in your own checkout, so nothing untracked there is touched. Set `SCRATCH` to the session's scratchpad first. The clone takes the checkout's committed `HEAD`: commit before you run it.
 
+Run it as four separate Bash calls, in order, with the full scratchpad path where it says `<scratchpad>` (the rule hooks refuse a call that sets `PATH` beside `git`, `curl` or a script, a `rm` of a filled-in path beside `git`, a shell function, and `${SCRATCH:?...}`).
+
+Call 1: clear the old copy.
+
 ```sh
-export PATH=/opt/node24/bin:$PATH SCRATCH=${SCRATCH:?set SCRATCH to the scratchpad}
-rm -rf "$SCRATCH/site-verify" && git clone -q "$(git rev-parse --show-toplevel)" "$SCRATCH/site-verify"
-cd "$SCRATCH/site-verify"
-pnpm install --frozen-lockfile
-pnpm build
-WRANGLER_SEND_METRICS=false pnpm exec wrangler pages dev dist --ip 127.0.0.1 --port 8788 > "$SCRATCH/wrangler.log" 2>&1 &
-ready() { [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8788/)" = 200 ]; }
-for i in $(seq 60); do ready && break; sleep 1; done
-ready && echo READY || { echo "NOT READY: no 200 from 127.0.0.1:8788 after 60 tries" >&2; tail -n 20 "$SCRATCH/wrangler.log" >&2; false; }
+export SCRATCH=<scratchpad>; rm -rf "$SCRATCH/site-verify"
+```
+
+Call 2: the clone.
+
+```sh
+export SCRATCH=<scratchpad>; git clone -q "$(git rev-parse --show-toplevel)" "$SCRATCH/site-verify"
+```
+
+Call 3: Node 24, install, build, start (no `git` or `curl`).
+
+```sh
+export PATH=/opt/node24/bin:$PATH SCRATCH=<scratchpad>; cd "$SCRATCH/site-verify"; pnpm install --frozen-lockfile; pnpm build; WRANGLER_SEND_METRICS=false pnpm exec wrangler pages dev dist --ip 127.0.0.1 --port 8788 > "$SCRATCH/wrangler.log" 2>&1 &
+```
+
+Call 4: wait for it (no `PATH` line).
+
+```sh
+export SCRATCH=<scratchpad>; for i in $(seq 60); do [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8788/)" = 200 ] && break; sleep 1; done; [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8788/)" = 200 ] && echo READY || { echo "NOT READY: no 200 from 127.0.0.1:8788 after 60 tries" >&2; tail -n 20 "$SCRATCH/wrangler.log" >&2; false; }
 ```
 
 It is ready when the last line prints READY: `curl http://127.0.0.1:8788/` answers 200 and the log says "Ready on http://127.0.0.1:8788". If it prints NOT READY, read the log lines it shows and see "When it breaks". Start times, timed with `date` before and after: the cold first start in a new container (nothing installed or cached yet) took about 21 to 23 seconds, on commit e379aea; a later clean start, with the pnpm store warm, took 11 seconds in my run and 13 to 14 in a fresh session's (install and build 8, the server a few more), on commit 2fc87ac.
