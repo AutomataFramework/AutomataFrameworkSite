@@ -1,4 +1,0 @@
-- Task: batched merge queue, this repo's PR (spec 2026-11-25-batched-merge-queue-design.md in AutomataFramework)
-- Last commit: dbf150a (2026-11-25T00:37:04Z)
-- Next step: open the PR, hand it to the coordinator for the implementation audit
-- Open decisions: none
