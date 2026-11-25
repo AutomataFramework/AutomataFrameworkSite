@@ -1457,12 +1457,18 @@ test('a package runner takes the value of --package as the package, not the prog
     'pnpm dlx --package x create-x',
   ])
     assert.equal(bash(c).denied, false, c)
-  for (const c of ['npx --package x "$P"', 'npx -p x "$P"', 'pnpm dlx --package x "$P"']) assert.equal(bash(c).denied, true, c)
+  for (const c of ['npx --package x "$P"', 'npx -p x "$P"', 'pnpm dlx --package x "$P"'])
+    assert.equal(bash(c).denied, true, c)
 })
 test('a shell asked only for its version or help is a plain program (W2)', () => {
-  for (const c of ['bash --version | head -1', 'git show HEAD:README.md | sha256sum && bash --version', 'sh --help | head -2'])
+  for (const c of [
+    'bash --version | head -1',
+    'git show HEAD:README.md | sha256sum && bash --version',
+    'sh --help | head -2',
+  ])
     assert.equal(bash(c).denied, false, c)
-  for (const c of ['bash -s < x.sh', 'bash --version -s', 'echo ls | bash', 'bash --version --help']) assert.equal(bash(c).denied, true, c)
+  for (const c of ['bash -s < x.sh', 'bash --version -s', 'echo ls | bash', 'bash --version --help'])
+    assert.equal(bash(c).denied, true, c)
 })
 test('sed -n Np beside a gh api read prints lines and is allowed (W4)', () => {
   for (const c of [
@@ -1591,7 +1597,12 @@ test('a pull request whose Lane section says lane 1 is lane 1 though its text na
   const r = bash('gh api -X POST repos/mcthaydt/One/pulls/9/ccr/ready_for_review', {
     table: {
       ...baseTable(0),
-      'repos/mcthaydt/One/pulls/9': { number: 9, state: 'open', body: site98, head: { ref: 'feature', sha: 'abc1234' } },
+      'repos/mcthaydt/One/pulls/9': {
+        number: 9,
+        state: 'open',
+        body: site98,
+        head: { ref: 'feature', sha: 'abc1234' },
+      },
       'repos/mcthaydt/One/issues/9/comments': [],
       'repos/mcthaydt/One/pulls/9/reviews': [],
     },
