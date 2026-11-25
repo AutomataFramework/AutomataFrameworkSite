@@ -578,6 +578,9 @@ function agnostic(config, top) {
   for (const k of REPO_ONLY) c[k] = { ...(typeof config[k] === 'object' ? config[k] : {}), enabled: false };
   return c;
 }
+// Other spellings of this repo's slug (repoAliases), so a call that names one is judged like this repo.
+const aliasesOf = (config) => (config.repoAliases ?? []).map((a) => String(a).toLowerCase());
+const isThisRepo = (config, own, s) => s === own || aliasesOf(config).includes(s);
 // A repo is guarded when alsoGuards names it or guardOwners names its owner.
 const guarded = (config, slug) => {
   const s = String(slug ?? '').toLowerCase();
@@ -594,7 +597,7 @@ function cloneFor(slug, root, cwd) {
     if (seen.has(r)) continue;
     seen.add(r);
     const c = loadConfig(r).config;
-    if (c && String(repoSlug(c, r) ?? '').toLowerCase() === s) return { root: r, config: c };
+    if (c && isThisRepo(c, String(repoSlug(c, r) ?? '').toLowerCase(), s)) return { root: r, config: c };
   }
   return null;
 }
@@ -603,7 +606,7 @@ function scopeFor(root, config, cwd, slug) {
   if (!slug && config.detached && !repoTop(cwd)) return { root, config: repoless(config) };
   if (slug) {
     const s = slug.toLowerCase();
-    if (s === own) return { root, config: config.detached ? { ...config, detached: false } : config };
+    if (isThisRepo(config, own, s)) return { root, config: config.detached ? { ...config, detached: false } : config };
     const near = cloneFor(slug, root, cwd);
     if (near) return near;
     // A guarded repo with no checkout here: the repo-wide checks still hold, and a pull request
@@ -616,7 +619,7 @@ function scopeFor(root, config, cwd, slug) {
   const theirs = loadConfig(top).config;
   if (theirs) return { root: top, config: theirs };
   const s = String(repoSlug({}, top) ?? '').toLowerCase();
-  if (s && s === own) return { root: top, config };
+  if (s && isThisRepo(config, own, s)) return { root: top, config };
   return s && guarded(config, s) ? { root: top, config: agnostic(config, top) } : null;
 }
 
@@ -2416,7 +2419,7 @@ function rootForCall(input) {
   for (const r of [...rootsBelow(input.cwd ?? '.'), ...rootsBelow(process.env.CLAUDE_PROJECT_DIR ?? '.')]) {
     if (!slug) continue;
     const c = loadConfig(r).config;
-    if (c && String(repoSlug(c, r) ?? '').toLowerCase() === slug) return r;
+    if (c && isThisRepo(c, String(repoSlug(c, r) ?? '').toLowerCase(), slug)) return r;
   }
   return null;
 }
