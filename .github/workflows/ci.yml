@@ -13,7 +13,7 @@ on:
     # `ready_for_review` starts the whole suite as a draft is handed over; `labeled` lets a thread ask for it sooner.
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   push:
-    branches: [main]
+    branches: [main, 'merge-queue/**']
 
 permissions:
   contents: read
