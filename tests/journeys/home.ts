@@ -77,6 +77,15 @@ export const button = (page: Page, name: string) => page.getByRole('button', { n
 export const PLAYING_MS = 15_000
 
 /** The page's own `#game`: its `data-state` is what the page believes the game is doing. */
+/**
+ * The visitor has already answered the question about counting visits (No). Until it is answered the question sits
+ * over the window's foot and may cover the game's edge (the Owner, 2026-11-24); the journeys about the game itself play
+ * as a visitor past that, and `count.journey.ts` holds what the question may cover.
+ */
+export async function answered(page: Page): Promise<void> {
+  await page.addInitScript(() => localStorage.setItem('automata.site.counting', 'no'))
+}
+
 export const pageGame = (page: Page) => page.locator('#game')
 
 /** The request for the game's page in its watching form, and the request for the game to play. */

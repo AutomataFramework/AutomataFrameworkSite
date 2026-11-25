@@ -40,6 +40,23 @@ function cutOff(doc: Document): void {
   doc.head.append(rule)
 }
 
+/**
+ * Keeps room at the page's foot for the question, which sits over the page fixed to the window's foot: its height and
+ * the gap under it, so the end of the page can be scrolled clear of it. Measured again when the window changes size
+ * (a turned phone) and once the fonts have arrived. Not a ResizeObserver: the room it sets changes the page's layout,
+ * and WebKit reports that as an observer loop.
+ */
+function keepRoom(doc: Document, ask: HTMLElement): void {
+  const win = doc.defaultView
+  const room = (): void => {
+    const gap = Number.parseFloat(win?.getComputedStyle(ask).bottom ?? '') || 0
+    doc.documentElement.style.setProperty('--ask-room', `${ask.offsetHeight + gap * 2}px`)
+  }
+  room()
+  win?.addEventListener('resize', room)
+  void doc.fonts?.ready.then(room)
+}
+
 /** Shows the question on a first visit, wires its two buttons and the footer's, and adds the counter on a yes. */
 export function startCounting(
   doc: Document,
@@ -69,6 +86,7 @@ export function startCounting(
 
   if (answer === 'yes') addCounter(doc, token)
   show()
+  if (ask !== null && !ask.hidden) keepRoom(doc, ask)
   for (const button of doc.querySelectorAll<HTMLButtonElement>('button[data-count]'))
     button.addEventListener('click', () => give(button.dataset.count === 'yes' ? 'yes' : 'no'))
   change?.addEventListener('click', () => give(answer === 'yes' ? 'no' : 'yes'))
