@@ -1536,8 +1536,12 @@ test('a shell function definition stays refused, even one whose body only reads 
 // refused, as on 990104a (moved to a follow-up spec).
 test('a gh api read piped to sed stays refused, as on 990104a', () => {
   for (const c of [
-    "gh api -X GET search/code -f q='repo:mcthaydt/One rules' | sed -n 1,5p",
     "gh api -X GET search/code -f q=x --jq '.items[].path' | sed 's/^/x /g'",
+    'gh api -X GET search/issues -f q=x | sed -n 1,5w out',
+    "gh api -X GET search/issues -f q=x | sed -n '1p;w out'",
+    'gh api -X GET search/issues -f q=x | sed -e 1p',
+    'gh api -X GET search/issues -f q=x | sed -n 1,5p f.txt',
+    'gh api -X GET search/issues -f q=x | sed -n 1,5p > out.txt',
     "gh api -X GET search/code -f q=x | sed -n 's/[/]/;s/w x.sh\\n/x/p'",
     'gh api -X POST repos/mcthaydt/One/issues -f title=x | sed -n 1p',
     "gh api -X GET search/code -f q=x | sed 's/a/b/e'",
@@ -1548,6 +1552,40 @@ test('a gh api read piped to sed stays refused, as on 990104a', () => {
     'gh api -X GET search/code -f q=x | sh',
   ])
     assert.equal(bash(c).denied, true, c)
+})
+
+// Hook round 2, stage 3 (W1, W2, W4): calls the hook refused for no reason.
+test('a package runner takes the value of --package as the package, not the program (W1)', () => {
+  for (const c of [
+    'npx --yes --package /tmp/s/pack/a.tgz automata create my-game --source en',
+    'npx --package "$TGZ" create-x',
+    'npx -p x create-x',
+    'npx --package=x create-x',
+    'pnpm dlx --package x create-x',
+  ])
+    assert.equal(bash(c).denied, false, c)
+  for (const c of ['npx --package x "$P"', 'npx -p x "$P"', 'pnpm dlx --package x "$P"'])
+    assert.equal(bash(c).denied, true, c)
+})
+test('a shell asked only for its version or help is a plain program (W2)', () => {
+  for (const c of [
+    'bash --version | head -1',
+    'git show HEAD:README.md | sha256sum && bash --version',
+    'sh --help | head -2',
+  ])
+    assert.equal(bash(c).denied, false, c)
+  for (const c of ['bash -s < x.sh', 'bash --version -s', 'echo ls | bash', 'bash --version --help'])
+    assert.equal(bash(c).denied, true, c)
+})
+test('sed -n Np beside a gh api read prints lines and is allowed (W4)', () => {
+  for (const c of [
+    "gh api -X GET search/code -f q='repo:mcthaydt/One rules' | sed -n 1,5p",
+    "gh api -X GET search/issues -f q=x | sed -n '$p'",
+    "gh api -X GET search/issues -f q=x | sed -n '3,$p'",
+    'gh api -X GET search/issues -f q=x | sed -n 7p',
+  ])
+    assert.equal(bash(c).denied, false, c)
+  assert.equal(bash('gh api -X POST repos/o/r/issues -f title=x | sed -n 1p').denied, true)
 })
 
 const SETTINGS = ['.claude', 'settings.json'].join('/')
@@ -1639,6 +1677,44 @@ test("a body's Lane section decides its lane; with none, the highest lane named 
   assert.match(ready(both).reason, /lane 3 pull request #9 has no passing review/)
   // A Lane section that names no lane names none.
   assert.match(ready(body().replace('Lane 1.', 'A doc.')).reason, /names no lane/)
+})
+
+// Hook round 2, stage 3, W5: Site #98 (an audit file only) was reported as lane 2 because its text names a lane 2 review.
+// #280's Lane section rule already fixes it; this keeps its real body as the test.
+test('a pull request whose Lane section says lane 1 is lane 1 though its text names a lane 2 review (Site #98, W5)', () => {
+  const site98 = [
+    '<!-- claude-projects-attribution: {"github_login":"mcthaydt"} -->',
+    '_Requested by **Twacklepif** · [project thread](https://claude.ai/code/project/x)_',
+    '',
+    '## What',
+    '',
+    'The fresh lane 2 review of #96 (the "May we count your visit?" notice) at its head `ec9fe42`: one audit file. Verdict FAIL, 2 red.',
+    '',
+    '## Lane',
+    '',
+    'Lane 1: one audit file, no code.',
+    '',
+    '## Acceptance criteria',
+    '',
+    '- The audit names the commit it examined.',
+    '- CI green.',
+    '',
+    'Requested by **McThayDT**',
+  ].join('\n')
+  const r = bash('gh api -X POST repos/mcthaydt/One/pulls/9/ccr/ready_for_review', {
+    table: {
+      ...baseTable(0),
+      'repos/mcthaydt/One/pulls/9': {
+        number: 9,
+        state: 'open',
+        body: site98,
+        head: { ref: 'feature', sha: 'abc1234' },
+      },
+      'repos/mcthaydt/One/issues/9/comments': [],
+      'repos/mcthaydt/One/pulls/9/reviews': [],
+    },
+  })
+  assert.equal(r.denied, false, r.reason)
 })
 
 // Hook round 2, stage 1 (spec hook-bypasses-2): constructs the hook cannot read are refused whole.

@@ -241,6 +241,10 @@ const PNPM_OWN = new Set(['add', 'install', 'i', 'remove', 'rm', 'update', 'up',
 const SHELL_WORDS = new Set(['do', 'then', 'else', 'elif', 'if', 'while', 'until', '!', '{', 'coproc', 'time']);
 // Turns parsed commands into checkable ones: wrappers peeled, inline env split off,
 // `bash -c` and `eval` read again, `cd` and `export` carried to later commands.
+// npx and pnpm dlx flags, then the program. --package and -p take the next word (the package), so it is not the program.
+function skipRunnerFlags(words) {
+  while (words[0]?.startsWith('-')) { const f = words.shift(); if (f === '--package' || f === '-p') words.shift(); }
+}
 function simpleCommands(src, baseCwd, depth = 0, unk = false) {
   const result = [];
   let cwd = baseCwd;
@@ -285,12 +289,12 @@ function simpleCommands(src, baseCwd, depth = 0, unk = false) {
       if (w === 'chrt') { words.shift(); while (words[0]?.startsWith('-')) words.shift(); if (/^\d+$/.test(words[0] ?? '')) words.shift(); continue; }
       if (w === 'taskset') { words.shift(); while (words[0]?.startsWith('-')) words.shift(); words.shift(); continue; } // flags, then the mask or CPU list
       if (w === 'dbus-run-session') { words.shift(); while (words[0]?.startsWith('-')) { const f = words.shift(); if (f === '--') break; if (/^--(config-file|dbus-daemon)$/.test(f)) words.shift(); } continue; }
-      if (w === 'npx' || w === 'bunx' || w === 'pnpx') { words.shift(); while (words[0]?.startsWith('-')) words.shift(); pkg = true; continue; }
+      if (w === 'npx' || w === 'bunx' || w === 'pnpx') { words.shift(); skipRunnerFlags(words); pkg = true; continue; }
       if (w === 'pnpm' || w === 'yarn' || w === 'npm' || w === 'bun') {
         const tool = words.shift();
         while (words[0]?.startsWith('-')) { const f = words.shift(); if (/^(-C|--dir|--filter|-F|--prefix|-w)$/.test(f) && f !== '-w') words.shift(); }
         const sub = words[0];
-        if (sub === 'exec' || sub === 'dlx' || (tool === 'bun' && sub === 'x')) { if (sub !== 'exec') pkg = true; words.shift(); while (words[0]?.startsWith('-')) words.shift(); continue; }
+        if (sub === 'exec' || sub === 'dlx' || (tool === 'bun' && sub === 'x')) { if (sub !== 'exec') pkg = true; words.shift(); skipRunnerFlags(words); continue; }
         if (sub === 'run' || sub === 'run-script') { words.shift(); if (words[0]) words[0] = 'script:' + words[0]; break; }
         if (tool === 'npm') { words.unshift(tool); break; }
         if (sub && !PNPM_OWN.has(sub)) { words[0] = 'script:' + sub; break; }
@@ -319,7 +323,7 @@ function simpleCommands(src, baseCwd, depth = 0, unk = false) {
       const inherit = (x) => ({ ...x, env: { ...env, ...x.env } });
       if (ci !== -1 && words[ci + 1] !== undefined) { result.push(...simpleCommands(words[ci + 1], cwd, depth + 1, unknown).map(inherit)); continue; }
       if (c.heredoc !== null && words.slice(1).every((x) => x.startsWith('-'))) { result.push(...simpleCommands(c.heredoc, cwd, depth + 1, unknown).map(inherit)); continue; }
-      if (c.heredoc === null && words.slice(1).every((x) => x.startsWith('-'))) { unreadable(`${prog} reading its commands from a pipe or a process substitution`); continue; }
+      if (c.heredoc === null && words.slice(1).every((x) => x.startsWith('-')) && !(words.length === 2 && /^--(version|help)$/.test(words[1]))) { unreadable(`${prog} reading its commands from a pipe or a process substitution`); continue; }
     }
     // A shell script file is read too, so a command in it is judged like one typed here.
     let runs = null;
@@ -1700,6 +1704,9 @@ function checkStage1(text, cmds, config, deny) {
 }
 // Words a CI watch loop needs that run nothing.
 const LOOP_SAFE = new Set(['sleep', 'break', 'continue']);
+// sed -n 1,5p prints lines of its input and writes nothing; no other form, no file operand.
+const SED_PRINT = /^(\d+|\$)(,(\d+|\$))?p$/;
+const sedPrints = (c) => c.prog === 'sed' && c.args.length === 2 && c.args[0] === '-n' && SED_PRINT.test(c.args[1]) && !c.heredoc && !c.inputs?.length && !(c.redirects ?? []).some((r) => r && !/^(\d+|-|\/dev\/(null|stdout|stderr))$/.test(r));
 // A gh api call in the text, up to the first character that could start or end another command (a
 // separator, a bracket, a redirect or a backtick); a read names GET or HEAD as its only method (-f/-F
 // then become query fields) and has no input file. Only the call itself is left out of the text.
@@ -1718,7 +1725,7 @@ function checkMixedText(text, cmds, config, deny) {
     // A CI watch loop waits between polls and stops when done: sleep, break and continue run nothing,
     // so they may sit beside gh api reads only.
     const readsOnly = !dangerText(decoded.replace(GH_API_SEGMENT, (s) => (ghApiRead(s) ? '' : s)));
-    const odd = cmds.find((c) => !c.fromScript && (!(TEXT_SAFE.has(c.prog) || (readsOnly && LOOP_SAFE.has(c.prog))) || (['echo', 'printf', 'cat', 'jq'].includes(c.prog) && WRITES_FILE(c))));
+    const odd = cmds.find((c) => !c.fromScript && (!(TEXT_SAFE.has(c.prog) || (readsOnly && (LOOP_SAFE.has(c.prog) || sedPrints(c)))) || (['echo', 'printf', 'cat', 'jq'].includes(c.prog) && WRITES_FILE(c))));
     if (odd) { deny(refusal(ROUTE_RULE, `a GitHub or push write in the same command as ${odd.prog === '#unreadable' ? 'a program the hook cannot read' : odd.prog}, which could run it or save it to run later`, 'run the gh or git command on its own in Bash; write notes that quote gh commands with the Write tool, as .md or .txt')); }
   }
 }
