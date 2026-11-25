@@ -23,6 +23,9 @@ const makeRepo = (dir, slug) => {
   cpSync(join(here, 'rules.mjs'), join(dir, '.claude', 'hooks', 'rules.mjs'))
   const config = JSON.parse(readFileSync(join(here, 'rules.json'), 'utf8'))
   config.repo = slug
+  // The same repo under the organization's name: guarded, and judged by this repo's own rules.
+  config.guardOwners = ['mcthaydt', 'automata-framework']
+  config.repoAliases = [`automata-framework/${slug.split('/')[1]}`]
   writeFileSync(join(dir, '.claude', 'hooks', 'rules.json'), JSON.stringify(config))
   writeFileSync(
     join(dir, 'CLAUDE.md'),
@@ -85,6 +88,12 @@ const open = (n) => Array.from({ length: n }, (_, i) => ({ number: 100 + i }))
 const baseTable = (openCount) => ({
   'repos/mcthaydt/One/pulls': open(openCount),
   'repos/mcthaydt/Two/pulls': open(openCount),
+  'repos/automata-framework/One/pulls': open(openCount),
+  'repos/automata-framework/One/pulls/7': {
+    number: 7,
+    state: 'closed',
+    head: { ref: 'feature', sha: 'abc1234' },
+  },
   'repos/mcthaydt/One': { private: false },
   'repos/mcthaydt/One/pulls/7': { number: 7, state: 'closed', head: { ref: 'feature', sha: 'abc1234' } },
 })
@@ -246,6 +255,59 @@ test('a call that names another repo is judged by that repo, even from a folder 
     }).reason,
     /no checkout here/,
   )
+})
+
+test('the shipped rules.json guards both owners and names the organization spelling of this repo', () => {
+  const real = JSON.parse(readFileSync(join(here, 'rules.json'), 'utf8'))
+  assert.deepEqual(real.guardOwners, ['mcthaydt', 'automata-framework'])
+  assert.deepEqual(real.repoAliases, [`automata-framework/${real.repo.split('/')[1]}`])
+})
+
+test('a call that names the organization spelling of this repo is judged by this repo, not refused as no checkout', () => {
+  const input = {
+    owner: 'automata-framework',
+    repo: 'One',
+    title: 't',
+    head: 'feature',
+    base: 'main',
+    draft: true,
+    body: body(),
+  }
+  assert.equal(mcp('mcp__github__create_pull_request', input).denied, false)
+  assert.match(mcp('mcp__github__create_pull_request', input, { table: baseTable(LIMIT) }).reason, atMost)
+  const reopen = { owner: 'automata-framework', repo: 'One', pullNumber: 7, state: 'open' }
+  assert.match(mcp('mcp__github__update_pull_request', reopen, { table: baseTable(LIMIT) }).reason, atMost)
+  const edit = mcp('mcp__github__update_pull_request', {
+    owner: 'automata-framework',
+    repo: 'One',
+    pullNumber: 7,
+    body: 'Hi',
+  })
+  assert.doesNotMatch(edit.reason, /no checkout here/)
+  const ghCreate = bash(
+    `gh pr create -R automata-framework/One --draft --title t --body-file ${join(repo, 'missing.md')}`,
+  )
+  assert.match(ghCreate.reason, /cannot be read/)
+  assert.doesNotMatch(bash('gh pr edit 7 -R automata-framework/One --body x').reason, /no checkout here/)
+  assert.doesNotMatch(bash('gh pr merge 7 --merge -R automata-framework/One').reason, /no checkout here/)
+  const merge = { owner: 'automata-framework', repo: 'One', pullNumber: 7, merge_method: 'merge' }
+  assert.doesNotMatch(mcp('mcp__github__merge_pull_request', merge).reason, /no checkout here/)
+})
+
+test('a squash merge, a rebase merge and a force push naming the organization spelling are still refused', () => {
+  const squash = mcp('mcp__github__merge_pull_request', {
+    owner: 'automata-framework',
+    repo: 'One',
+    pullNumber: 7,
+    merge_method: 'squash',
+  })
+  assert.equal(squash.denied, true)
+  assert.match(squash.reason, /merge commit|squash/i)
+  assert.equal(bash('gh pr merge 7 --squash -R automata-framework/One').denied, true)
+  assert.equal(bash('gh pr merge 7 --rebase -R automata-framework/One').denied, true)
+  const force = bash('git push --force git@github.com:automata-framework/One.git feature')
+  assert.equal(force.denied, true)
+  assert.match(force.reason, /force/i)
 })
 
 test('routes the hooks cannot read are refused: raw HTTP, scripts, aliases, extensions, GraphQL', () => {
