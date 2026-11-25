@@ -3,10 +3,7 @@
   "repo": "mcthaydt/AutomataFrameworkSite",
   "alsoGuards": [],
   "guardOwners": ["mcthaydt", "automata-framework", "AutomataFramework"],
-  "repoAliases": [
-    "automata-framework/AutomataFrameworkSite",
-    "AutomataFramework/AutomataFrameworkSite"
-  ],
+  "repoAliases": ["automata-framework/AutomataFrameworkSite", "AutomataFramework/AutomataFrameworkSite"],
   "identity": {
     "enabled": true,
     "commitTools": [
