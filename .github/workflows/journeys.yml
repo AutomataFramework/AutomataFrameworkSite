@@ -48,7 +48,7 @@ jobs:
         engine: ${{ fromJSON(inputs.engines) }}
         shard: [1, 2]
     env:
-      ONLY: ${{ inputs.only-changed && '--only-changed=origin/main --pass-with-no-tests' || '' }}
+      ONLY: ${{ inputs.only-changed && '--only-changed=origin/main' || '' }}
     steps:
       # The whole history, so `--only-changed` can compare with `origin/main`.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
