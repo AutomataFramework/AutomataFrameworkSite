@@ -2,7 +2,7 @@
 // hooks judge each one. Run: node --test .claude/hooks/rules.test.mjs. It builds a throwaway repo with this
 // folder's rules.mjs and rules.json, and a stand-in `gh` that answers from a table and logs every call.
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -89,6 +89,7 @@ const baseTable = (openCount) => ({
   'repos/mcthaydt/One/pulls/7': { number: 7, state: 'closed', head: { ref: 'feature', sha: 'abc1234' } },
 })
 
+const SESSION = `t-${process.pid}`
 function hook(
   event,
   input,
@@ -109,7 +110,7 @@ function hook(
       ? [script]
       : [script, '--find-repo']
   const r = spawnSync('node', args, {
-    input: JSON.stringify({ hook_event_name: event, session_id: 't', cwd, ...input }),
+    input: JSON.stringify({ hook_event_name: event, session_id: SESSION, cwd, ...input }),
     encoding: 'utf8',
     env: {
       ...process.env,
@@ -132,6 +133,9 @@ function hook(
     reason: out?.hookSpecificOutput?.permissionDecisionReason ?? '',
   }
 }
+// The session's first look at git's settings (stage 2) is made at its first event, as a real session's is.
+hook('SessionStart', {})
+process.on('exit', () => rmSync(join(tmpdir(), 'automata-rule-hooks', `${SESSION}.json`), { force: true }))
 const bash = (command, opts) => hook('PreToolUse', { tool_name: 'Bash', tool_input: { command } }, opts)
 const mcp = (name, input, opts) => hook('PreToolUse', { tool_name: name, tool_input: input }, opts)
 const writeJson = (name, value) => {
@@ -891,7 +895,10 @@ test('a merged branch may be deleted through the API; the default branch and unm
 })
 
 test('a script is judged by its own text: read-only gh calls beside it pass, a quoted gh write in it is named', () => {
-  const reads = `python3 - <<'EOF'\nopen('notes.md', 'a').write('a line\\n')\nEOF\nfor s in abc def; do gh api -X GET repos/mcthaydt/One/commits/$s/check-runs --jq '.check_runs[].conclusion'; done`
+  // Stage 2, S2.2: an interpreter fed a heredoc is refused beside gh now, so the script and the reads are two calls.
+  const script = `python3 - <<'EOF'\nopen('notes.md', 'a').write('a line\\n')\nEOF`
+  const reads = `for s in abc def; do gh api -X GET repos/mcthaydt/One/commits/$s/check-runs --jq '.check_runs[].conclusion'; done`
+  assert.equal(bash(script).denied, false, bash(script).reason)
   assert.equal(bash(reads).denied, false, bash(reads).reason)
   // A string the script holds could be handed to a shell, so it still counts; the reason says so.
   const quoted = `python3 - <<'EOF'\nopen('notes.md', 'a').write('use gh api -X POST repos/o/r/pulls/1/ccr/ready_for_review alone\\n')\nEOF`
@@ -1268,7 +1275,7 @@ test('a script file written and run in the same command is refused, with a reaso
       'bash safe.sh > out.txt 2>/dev/null',
       'node safe.mjs > out.txt',
       'echo hi > notes.txt && bash safe.sh',
-      'git diff safe.sh && git add safe.sh && bash safe.sh',
+      // (Stage 2, S2.2: bash on a script git does not track unchanged beside git is refused now; moved to the S2.2 test.)
       "awk '{print $1}' notes.txt && sed -i 's/`a`/$b/' notes.md && bash safe.sh",
     ])
       assert.equal(bash(c).denied, false, `${c}: ${bash(c).reason}`)
@@ -1289,8 +1296,7 @@ test('a script run twice, or named by a command that writes nothing, is not a wr
       'node a.mjs x; node a.mjs y',
       `pkill -f "${join(repo, 'scripts', 'up.mjs')}"; node scripts/up.mjs`,
       'pgrep -f scripts/up.mjs; kill 1; killall up; node scripts/up.mjs',
-      'for r in a b; do git -C $r checkout -b x; node scripts/up.mjs; done',
-      'for r in a b; do git -C "$r" switch -q -c x; node scripts/up.mjs; done',
+      // (Stage 2, S2.1: git -C with a variable is refused now; the two loops that were here moved to the S2.1 test.)
     ])
       assert.equal(bash(c).denied, false, `${c}: ${bash(c).reason}`)
     for (const c of [
@@ -1803,4 +1809,264 @@ test('S1.10 to S1.12: git pointed at another repo, a new repo with its own hooks
     'git init /tmp/s/n',
     'git checkout --no-recurse-submodules main',
   ])
+})
+
+// ---------- hook round 2, stage 2: what git and gh will read, judged when they run ----------
+
+const victim = join(top, 'gate')
+mkdirSync(victim)
+makeRepo(victim, 'mcthaydt/Gate')
+const inVictim = (command, extra = {}) => bash(command, { cwd: victim, ...extra })
+const gitIn = (cmd) => sh(cmd, victim)
+const restoreVictim = () => {
+  rmSync(join(victim, '.git', 'config.worktree'), { force: true })
+  rmSync(join(victim, 'inc.cfg'), { force: true })
+  sh('if [ -L .git/hooks ]; then rm .git/hooks; mv .git/hooks.real .git/hooks; fi', victim)
+  sh('rm -f .git/hooks/pre-commit', victim)
+  for (const key of [
+    'core.pager',
+    'core.fsmonitor',
+    'alias.x',
+    'include.path',
+    'init.templatedir',
+    'submodule.recurse',
+    'extensions.worktreeConfig',
+  ])
+    sh(`git config --unset-all ${key} || true`, victim)
+}
+
+test('S2.1: a hook, an unsafe config key or a link in the repo refuses git at the next call', () => {
+  assert.equal(inVictim('git status').denied, false, inVictim('git status').reason)
+  try {
+    writeFileSync(join(victim, '.git', 'hooks', 'pre-commit.sample'), '#!/bin/sh\n')
+    assert.equal(inVictim('git status').denied, false, 'a sample hook is not a hook')
+    // Keys real tools write (gh repo set-default, git sparse-checkout, git worktree add) pass the gate.
+    for (const [key, value] of [
+      ['remote.origin.gh-resolved', 'base'],
+      ['core.sparseCheckout', 'true'],
+      ['core.sparseCheckoutCone', 'true'],
+      ['extensions.worktreeConfig', 'true'],
+    ]) {
+      gitIn(`git config ${key} ${value}`)
+      assert.equal(inVictim('git status').denied, false, `${key}: ${inVictim('git status').reason}`)
+      gitIn(`git config --unset ${key}`)
+    }
+    for (const make of [
+      () => writeFileSync(join(victim, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\ntrue\n'),
+      () => gitIn('git config core.pager ./p.sh'),
+      () => gitIn('git config core.fsmonitor ./p.sh'),
+      () => gitIn('git config alias.x status'),
+      () => gitIn('git config include.path ../inc.cfg'),
+      () => gitIn('git config init.templatedir /tmp/t'),
+      () => gitIn('git config submodule.recurse true'),
+      () => {
+        gitIn('git config extensions.worktreeConfig true')
+        writeFileSync(join(victim, '.git', 'config.worktree'), '[core]\n\tpager = ./p.sh\n')
+      },
+      () => {
+        writeFileSync(join(victim, 'inc.cfg'), '[core]\n\tpager = ./p.sh\n')
+        gitIn('git config include.path ../inc.cfg')
+      },
+      () => gitIn('mv .git/hooks .git/hooks.real && ln -s hooks.real .git/hooks'),
+    ]) {
+      make()
+      const r = inVictim('git log')
+      assert.equal(r.denied, true, 'a hidden change to what git reads is refused at the git call')
+      assert.match(r.reason, /could make git run a program/)
+      assert.equal(bash('git status', { cwd: other }).denied, false, 'only the repo that was changed')
+      restoreVictim()
+    }
+    // The same hook, reached through -C and cd (the call's folder is not where the hook is).
+    writeFileSync(join(victim, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\ntrue\n')
+    assert.equal(bash(`git -C ${victim} commit -m x`, { cwd: other }).denied, true)
+    assert.equal(bash(`cd ${victim} && git commit -m x`, { cwd: other }).denied, true)
+    assert.equal(inVictim('ls .git/hooks').denied, false, 'a call that runs no git or gh is not judged')
+  } finally {
+    restoreVictim()
+    rmSync(join(victim, '.git', 'hooks', 'pre-commit.sample'), { force: true })
+  }
+})
+
+test('S2.1: a folder the hook cannot know is refused for git; written-out folders are allowed', () => {
+  const unknown = /folder the hook cannot know/
+  for (const c of [
+    'cd "$SCRATCH/repo" && git status',
+    'git -C "$D" status',
+    'for r in a b; do git -C "../$r" pull; done',
+    'for r in a b; do git -C $r checkout -b x; done',
+    'cd /tmp/s/*/ && git status',
+    'pushd /tmp; git status',
+    '(cd /tmp && git status)',
+    'cd /tmp && popd; git status',
+  ]) {
+    const r = bash(c)
+    assert.equal(r.denied, true, c)
+    assert.match(r.reason, unknown, c)
+  }
+  for (const c of [
+    'git -C ../two status',
+    `cd ${victim} && git status`,
+    'git checkout -b b',
+    'git config user.name x',
+    'git push -u origin HEAD:feature',
+    'git clone https://github.com/mcthaydt/AutomataFrameworkSite /tmp/s/site',
+    'mkdir -p "$D" && git clone https://github.com/mcthaydt/AutomataFrameworkSite "$D/site"',
+  ])
+    assert.equal(bash(c).denied, false, `${c}: ${bash(c).reason}`)
+})
+
+test('S2.1: a changed global setting, a lost first look and gh settings that run programs refuse git and gh', () => {
+  const home = join(top, 'home')
+  mkdirSync(join(home, '.config', 'gh'), { recursive: true })
+  const cfg = join(home, '.gitconfig')
+  writeFileSync(cfg, '[gpg "ssh"]\n\tprogram = /usr/bin/ssh-keygen\n[user]\n\tname = T\n')
+  const env = { HOME: home, XDG_CONFIG_HOME: join(home, '.config'), GIT_CONFIG_GLOBAL: cfg }
+  const session = `gate-${process.pid}`
+  const call = (command) =>
+    hook('PreToolUse', { tool_name: 'Bash', tool_input: { command }, session_id: session }, { env })
+  hook('SessionStart', { session_id: session }, { env })
+  try {
+    assert.equal(call('git status').denied, false, call('git status').reason)
+    assert.equal(call('gh pr view 5').denied, false, call('gh pr view 5').reason)
+    writeFileSync(cfg, '[gpg "ssh"]\n\tprogram = ./evil.sh\n[user]\n\tname = T\n')
+    const bad = call('git commit -m x')
+    assert.equal(bad.denied, true)
+    assert.match(bad.reason, /gpg\.ssh\.program/)
+    writeFileSync(cfg, '[gpg "ssh"]\n\tprogram = /usr/bin/ssh-keygen\n')
+    assert.equal(call('git status').denied, false, 'put back, it passes again')
+    // gh: a pager, browser, editor or socket anywhere in its files.
+    for (const line of [
+      'pager: ./p.sh',
+      'browser: ./b.sh',
+      'editor: ./e.sh',
+      '    http_unix_socket: /tmp/s',
+      "pager: 'less'",
+    ]) {
+      writeFileSync(join(home, '.config', 'gh', 'config.yml'), `${line}\n`)
+      const r = call('gh pr view 5')
+      assert.equal(r.denied, true, line)
+      assert.match(r.reason, /could make gh run a program/)
+    }
+    writeFileSync(join(home, '.config', 'gh', 'config.yml'), "pager:\neditor: ''\ngit_protocol: https\n")
+    assert.equal(call('gh pr view 5').denied, false, call('gh pr view 5').reason)
+    // A session with no first look (it began before this hook) gets one at its first git or gh call, and is judged from then on.
+    rmSync(join(tmpdir(), 'automata-rule-hooks', `${session}.json`), { force: true })
+    for (const c of ['git status', 'gh pr view 5']) assert.equal(call(c).denied, false, c)
+    assert.ok(readFileSync(join(tmpdir(), 'automata-rule-hooks', `${session}.json`), 'utf8'))
+    writeFileSync(cfg, '[gpg "ssh"]\n\tprogram = ./evil.sh\n')
+    assert.equal(call('git status').denied, true)
+    // Outside a repo the global and system settings are judged too (a clone or ls-remote runs them).
+    for (const c of [
+      'git clone https://github.com/mcthaydt/AutomataFrameworkSite /tmp/s/site',
+      'git clone /tmp/s/other /tmp/s/copy',
+      'git ls-remote https://github.com/mcthaydt/AutomataFrameworkSite',
+      'gh repo clone mcthaydt/AutomataFrameworkSite',
+    ]) {
+      const r = hook(
+        'PreToolUse',
+        { tool_name: 'Bash', tool_input: { command: c }, session_id: session },
+        { env, cwd: top },
+      )
+      assert.equal(r.denied, true, c)
+      assert.match(r.reason, /gpg\.ssh\.program/, c)
+    }
+    assert.equal(call('ls').denied, false)
+  } finally {
+    rmSync(join(tmpdir(), 'automata-rule-hooks', `${session}.json`), { force: true })
+  }
+})
+
+test('S2.1: the first look is made once, by one of three hooks that start together, and later events leave it alone', async () => {
+  const session = `look-${process.pid}`
+  const file = join(tmpdir(), 'automata-rule-hooks', `${session}.json`)
+  rmSync(file, { force: true })
+  const start = () =>
+    new Promise((done) => {
+      const p = spawn('node', [join(repo, '.claude', 'hooks', 'rules.mjs')], {
+        env: { ...process.env, CLAUDE_PROJECT_DIR: repo },
+      })
+      p.stdin.end(JSON.stringify({ hook_event_name: 'SessionStart', session_id: session, cwd: repo }))
+      p.on('close', done)
+    })
+  try {
+    await Promise.all([start(), start(), start()])
+    const first = readFileSync(file, 'utf8')
+    assert.ok(Array.isArray(JSON.parse(first).entries))
+    hook('PreToolUse', { tool_name: 'Bash', tool_input: { command: 'git status' }, session_id: session })
+    hook('SessionStart', { session_id: session })
+    assert.equal(readFileSync(file, 'utf8'), first)
+  } finally {
+    rmSync(file, { force: true })
+  }
+})
+
+test('S2.2: a write beside git or gh that they would then read is refused; plain words are not', () => {
+  writeFileSync(join(victim, 'up.mjs'), 'console.log(1)\n')
+  gitIn('git add up.mjs && git commit -qm up')
+  writeFileSync(join(victim, 'new.sh'), 'echo 1\n')
+  const cases = (list, denied) => {
+    for (const c of list) {
+      const r = inVictim(c)
+      assert.equal(r.denied, denied, `${c}: ${r.reason}`)
+      if (denied) assert.match(r.reason, /beside git or gh|folder the hook cannot know|written and run/, c)
+    }
+  }
+  try {
+    cases(
+      [
+        'cp x .claude/setting?.json; git status',
+        'pushd /tmp; echo x > a; git status',
+        'node new.sh; git push',
+        'bash new.sh; git status',
+        'ln -s a b; git status',
+        'find . -name x -delete; git status',
+        `python3 -c 'open("x","w")'; git status`,
+        `node -e 'require("fs").writeFileSync("x","")'; git commit -m x`,
+        `node -p '1'; gh pr list`,
+        `perl -e 'print 1'; git status`,
+        `ruby -e 'p 1'; git status`,
+        `php -r 'echo 1;'; gh pr list`,
+        `deno eval 'console.log(1)'; git status`,
+        `bun -e '1'; git status`,
+        `python3 - <<'EOF'\nopen('x','w')\nEOF\ngit status`,
+        'echo x > pre-*; git status',
+        'echo x > "pre-{a,b}"; git commit -m x',
+        'echo x > "$H/pre-commit"; git commit -m x',
+        'npx --package ./pack.tgz create-x; git status',
+        'git add -A && bash new.sh',
+        'git diff new.sh && git add new.sh && bash new.sh',
+        'node nothere.mjs && git status',
+        // A whole tree put into a repo's top folder, a folder above one, or a .git folder, beside git.
+        'cp -r /tmp/evil/. . && git commit -m x',
+        'cp -a /tmp/evil/.git . && git commit -m x',
+        'cp -r /tmp/evil/hooks .git/ && git status',
+        'tar -xf /tmp/evil.tar && git commit -m x',
+        'tar xzf /tmp/evil.tgz -C . && git status',
+        'rsync -a /tmp/evil/ ./ && git commit -m x',
+        'unzip -o /tmp/evil.zip && git commit -m x',
+        `unzip -o /tmp/evil.zip -d ${top} && git status`,
+      ],
+      true,
+    )
+    cases(
+      [
+        'mkdir -p /tmp/s/x && git clone https://github.com/mcthaydt/AutomataFrameworkSite /tmp/s/x/site',
+        'echo "$(date -u)" >> notes.md && git add notes.md',
+        `sed -i "s/^- Last commit: .*/- Last commit: $(git rev-parse --short HEAD)/" notes.md && git add -A && git commit -m x`,
+        'git add -A && git commit -m x && git push',
+        'node up.mjs && git status',
+        'pnpm test && git status',
+        'git status && node up.mjs',
+        'echo hi 2>&1 | cat; git status',
+        'cp -r /tmp/evil/. /tmp/elsewhere && git status',
+        'tar -czf /tmp/a.tgz src && git status',
+        'rsync -a src/ /tmp/b/ && git status',
+        'cp notes.md /tmp/n.md && git status',
+      ],
+      false,
+    )
+  } finally {
+    rmSync(join(victim, 'new.sh'), { force: true })
+    rmSync(join(victim, 'notes.md'), { force: true })
+  }
 })
