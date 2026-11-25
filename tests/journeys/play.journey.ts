@@ -4,6 +4,7 @@ import { expect, test } from '@playwright/test'
 import { isCommit, parseVersion } from '../../src/features/version/version.ts'
 import { siteFacts } from './facts.ts'
 import {
+  answered,
   button,
   FRAME,
   frameHeight,
@@ -66,6 +67,7 @@ for (const size of [SIZES[4], SIZES[0]]) {
         await gate
         await route.continue()
       })
+      await answered(page)
       await arrive(page)
       await button(page, WORDS.play.sheet).click()
       // The note is in the sheet's bar, where "Play it" was, never over the picture.
@@ -91,6 +93,7 @@ for (const size of [SIZES[4], SIZES[0]]) {
       page,
     }) => {
       const release = await holdWatching(page)
+      await answered(page)
       await arrive(page)
       await expect(pageGame(page)).toHaveAttribute('data-state', 'ready')
       expect(
@@ -219,6 +222,7 @@ for (const size of [SIZES[0], SIZES[2]]) {
     test.use({ viewport: { width: size.width, height: size.height }, hasTouch: true })
 
     test('the buttons are on screen and holding one moves the game', async ({ page, request }) => {
+      await answered(page)
       await arrive(page)
       const game = await play(page)
       await page.locator(FRAME).tap()

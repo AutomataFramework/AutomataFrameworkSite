@@ -138,6 +138,41 @@ for (const size of SIZES) {
       await page.screenshot({ path: `tests/journeys/__screenshots__/${size.name}-asked.png` })
       expect(trouble()).toEqual([])
     })
+
+    test('the question sits over the page, in the window, and moves nothing on the page', async ({
+      page,
+    }) => {
+      const trouble = watchForTrouble(page)
+      await arrive(page)
+      await expect(notice(page)).toBeVisible()
+      // Fixed to the window, all of it inside the window on arrival.
+      const placed = await notice(page).evaluate((ask) => {
+        const box = ask.getBoundingClientRect()
+        return { position: getComputedStyle(ask).position, top: box.top, bottom: box.bottom }
+      })
+      expect(placed.position).toBe('fixed')
+      expect(placed.top).toBeGreaterThanOrEqual(0)
+      expect(placed.bottom).toBeLessThanOrEqual(size.height)
+      // At the foot of the page, the footer's switch is not under the question: the page leaves it room.
+      const room = await page.evaluate(() => {
+        window.scrollTo(0, document.documentElement.scrollHeight)
+        const ask = document.querySelector('[data-ask]')?.getBoundingClientRect()
+        const change = document.querySelector('button[data-count-change]')?.getBoundingClientRect()
+        return { askTop: ask?.top ?? 0, changeBottom: change?.bottom ?? Number.POSITIVE_INFINITY }
+      })
+      expect(room.changeBottom).toBeLessThanOrEqual(room.askTop)
+      // Answering takes the question away and moves nothing: the game's sheet is where it was.
+      const sheetAt = () =>
+        page.evaluate(() => {
+          window.scrollTo(0, 0)
+          return document.querySelector('.sheet')?.getBoundingClientRect().top
+        })
+      const before = await sheetAt()
+      await press(page, WORDS.no)
+      await expect(notice(page)).toBeHidden()
+      expect(await sheetAt()).toBe(before)
+      expect(trouble()).toEqual([])
+    })
   })
 }
 
@@ -156,6 +191,67 @@ test.describe('phone-390x844: with no token', () => {
     await expect(page.getByRole('button', { name: WORDS.start, exact: true })).toBeHidden()
     await expect(page.getByRole('button', { name: WORDS.stop, exact: true })).toBeHidden()
     await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 1_000)))
+    expect(wire.away()).toEqual([])
+    expect(wire.counted()).toBe(0)
+    expect(trouble()).toEqual([])
+  })
+})
+
+// Until it is answered, the question may cover the game's edge and nothing else of the site's may (the Owner,
+// 2026-11-24); once it is answered, nothing of the site's is over the game at all.
+test.describe('desktop-1440x900: over the game', () => {
+  test.use({ viewport: { width: 1440, height: 900 } })
+
+  test('only the unanswered question is ever over the game', async ({ page }) => {
+    const trouble = watchForTrouble(page)
+    await arrive(page)
+    await expect(notice(page)).toBeVisible()
+    // What is at points across the part of the game in the window: inside the game, or inside the question.
+    const over = () =>
+      page.evaluate(() => {
+        const game = document.querySelector('#game')
+        const ask = document.querySelector('[data-ask]')
+        const box = game?.getBoundingClientRect()
+        if (game === null || box === undefined) return ['no game']
+        const found = new Set<string>()
+        for (let y = Math.max(box.top, 0) + 4; y < Math.min(box.bottom, innerHeight) - 2; y += 24)
+          for (let x = box.left + 4; x < box.right - 2; x += 48) {
+            const at = document.elementFromPoint(x, y)
+            found.add(
+              at !== null && game.contains(at)
+                ? 'game'
+                : at !== null && ask?.contains(at)
+                  ? 'question'
+                  : 'other',
+            )
+          }
+        return [...found].sort()
+      })
+    expect(await over()).toEqual(['game', 'question'])
+    await press(page, WORDS.no)
+    await expect(notice(page)).toBeHidden()
+    expect(await over()).toEqual(['game'])
+    expect(trouble()).toEqual([])
+  })
+})
+
+// A Yes given before, on a page that has since lost its token, still adds nothing: no token, nothing to count with.
+test.describe('phone-390x844: a Yes from before, and no token now', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('nothing is asked, nothing is added and nothing leaves the site', async ({ page, baseURL }) => {
+    const trouble = watchForTrouble(page)
+    const wire = await watchTheWire(page.context(), new URL(baseURL ?? '').origin)
+    await withoutToken(page.context())
+    await page.addInitScript(() => localStorage.setItem('automata.site.counting', 'yes'))
+    await arrive(page)
+    await untilWatching(page)
+    expect(await page.evaluate(() => localStorage.getItem('automata.site.counting'))).toBe('yes')
+    await expect(notice(page)).toBeHidden()
+    await expect(page.getByRole('button', { name: WORDS.start, exact: true })).toBeHidden()
+    await expect(page.getByRole('button', { name: WORDS.stop, exact: true })).toBeHidden()
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 1_000)))
+    await expect(page.locator('script[src*="cloudflareinsights"]')).toHaveCount(0)
     expect(wire.away()).toEqual([])
     expect(wire.counted()).toBe(0)
     expect(trouble()).toEqual([])

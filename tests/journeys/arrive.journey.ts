@@ -1,11 +1,13 @@
 // From arrival to playing, the way a first-time visitor goes: the game is already moving when they look, with nothing of
-// the site over it; Play, or a tap on the game, hands that same game over; a wheel or a finger over it still scrolls the
+// the site over it (once the question about counting visits is answered: until then it may cover the game's edge, as
+// count.journey.ts holds); Play, or a tap on the game, hands that same game over; a wheel or a finger over it still scrolls the
 // page; and where the game cannot play itself the picture stays and Play works as it always did. Every journey runs at
 // every size, in the three engines, against the stand-in game (`ci`) and against the real game built from the newest
 // green commit of its repo (`site`). The ones that need a game that misbehaves serve their own, at one size.
 import { expect, type Page, test } from '@playwright/test'
 import { isCommit, parseVersion } from '../../src/features/version/version.ts'
 import {
+  answered,
   button,
   FRAME,
   gameFontsSettled,
@@ -93,6 +95,7 @@ for (const size of SIZES) {
       request,
     }) => {
       const trouble = watchForTrouble(page)
+      await answered(page)
       await arrive(page)
       await untilWatching(page)
       const game = page.frameLocator(FRAME)
@@ -164,6 +167,7 @@ for (const size of SIZES) {
     })
 
     test('the keys reach the game that was handed over, with no second click', async ({ page }) => {
+      await answered(page)
       await arrive(page)
       const game = await play(page)
       const canvas = game.locator('canvas')
