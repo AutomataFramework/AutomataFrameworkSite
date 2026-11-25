@@ -9,7 +9,9 @@
 #     * a branch whose pull request was merged or closed, if nothing was pushed to it since (its newest commit is the
 #       one the pull request ended on);
 #     * a `claude/*` branch that never had an open pull request and has had no commit for two days (work in flight
-#       is younger than that).
+#       is younger than that);
+#     * a `merge-queue/*` batch branch (the merge queue's combined test branch, which carries no pull request) once its
+#       newest commit is a day old; a younger one may still be running.
 #
 # Safe by design: it never touches `main`, `ci-screens`, a protected branch or a branch with an open pull request,
 # ignores pull requests from forks, and treats a branch that is already gone as fine.
@@ -63,6 +65,8 @@ jobs:
           REPO: ${{ github.repository }}
           # A `claude/*` branch with no pull request is kept until its newest commit is this old.
           MAX_AGE_DAYS: 2
+          # A `merge-queue/*` batch branch is kept until its newest commit is this old.
+          MAX_BATCH_AGE_DAYS: 1
         run: |
           set -euo pipefail
           now=$(date -u +%s)
@@ -103,6 +107,16 @@ jobs:
                     reason="no pull request and no commit for $age_days days"
                   else
                     echo "Keeping $name: no pull request yet, but its last commit is recent."
+                    continue
+                  fi
+                  ;;
+                merge-queue/*)
+                  date=$(gh api "repos/$REPO/commits/$sha" --jq '.commit.committer.date')
+                  age_days=$(( (now - $(date -u -d "$date" +%s)) / 86400 ))
+                  if [ "$age_days" -ge "$MAX_BATCH_AGE_DAYS" ]; then
+                    reason="batch branch, no commit for $age_days days"
+                  else
+                    echo "Keeping $name: a batch may still be running."
                     continue
                   fi
                   ;;
