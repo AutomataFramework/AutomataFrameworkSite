@@ -7,7 +7,9 @@
       "Bash(gh api -X POST repos/mcthaydt/AutomataFrameworkSite/pulls/*/ccr/ready_for_review)",
       "Bash(gh api --method POST repos/mcthaydt/AutomataFrameworkSite/pulls/*/ccr/ready_for_review)",
       "Bash(gh api -X POST repos/automata-framework/AutomataFrameworkSite/pulls/*/ccr/ready_for_review)",
-      "Bash(gh api --method POST repos/automata-framework/AutomataFrameworkSite/pulls/*/ccr/ready_for_review)"
+      "Bash(gh api --method POST repos/automata-framework/AutomataFrameworkSite/pulls/*/ccr/ready_for_review)",
+      "Bash(gh api -X POST repos/AutomataFramework/AutomataFrameworkSite/pulls/*/ccr/ready_for_review)",
+      "Bash(gh api --method POST repos/AutomataFramework/AutomataFrameworkSite/pulls/*/ccr/ready_for_review)"
     ],
     "deny": [
       "Bash(gh api -X POST repos/mcthaydt/AutomataFrameworkSite/pulls/*/*/ccr/ready_for_review)",
@@ -21,7 +23,13 @@
       "Bash(gh api -X POST repos/automata-framework/AutomataFrameworkSite/pulls/*?*/ccr/ready_for_review)",
       "Bash(gh api --method POST repos/automata-framework/AutomataFrameworkSite/pulls/*/*/ccr/ready_for_review)",
       "Bash(gh api --method POST repos/automata-framework/AutomataFrameworkSite/pulls/* */ccr/ready_for_review)",
-      "Bash(gh api --method POST repos/automata-framework/AutomataFrameworkSite/pulls/*?*/ccr/ready_for_review)"
+      "Bash(gh api --method POST repos/automata-framework/AutomataFrameworkSite/pulls/*?*/ccr/ready_for_review)",
+      "Bash(gh api -X POST repos/AutomataFramework/AutomataFrameworkSite/pulls/*/*/ccr/ready_for_review)",
+      "Bash(gh api -X POST repos/AutomataFramework/AutomataFrameworkSite/pulls/* */ccr/ready_for_review)",
+      "Bash(gh api -X POST repos/AutomataFramework/AutomataFrameworkSite/pulls/*?*/ccr/ready_for_review)",
+      "Bash(gh api --method POST repos/AutomataFramework/AutomataFrameworkSite/pulls/*/*/ccr/ready_for_review)",
+      "Bash(gh api --method POST repos/AutomataFramework/AutomataFrameworkSite/pulls/* */ccr/ready_for_review)",
+      "Bash(gh api --method POST repos/AutomataFramework/AutomataFrameworkSite/pulls/*?*/ccr/ready_for_review)"
     ]
   },
   "hooks": {

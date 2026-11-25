@@ -2,8 +2,8 @@
   "defaultBranch": "main",
   "repo": "mcthaydt/AutomataFrameworkSite",
   "alsoGuards": [],
-  "guardOwners": ["mcthaydt", "automata-framework"],
-  "repoAliases": ["automata-framework/AutomataFrameworkSite"],
+  "guardOwners": ["mcthaydt", "automata-framework", "AutomataFramework"],
+  "repoAliases": ["automata-framework/AutomataFrameworkSite", "AutomataFramework/AutomataFrameworkSite"],
   "identity": {
     "enabled": true,
     "commitTools": [
