@@ -116,8 +116,12 @@
     "hint": "Use the self-hosted runner labels the gate starts."
   },
   "ownerDevice": {
-    "enabled": false,
-    "tools": []
+    "enabled": true,
+    "tools": [
+      "^mcp__remote-devices__",
+      "^mcp__hearthbot__(start_remote_control|connect_device)$",
+      "^mcp__claude-in-chrome__"
+    ]
   },
   "ownerCommands": {
     "enabled": true,
