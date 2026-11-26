@@ -183,13 +183,15 @@ jobs:
   # The commits and the words of the pull request (`scripts/check-commit-authors.ts`), checked inside `gate` so that the
   # merge queue, which waits only on `gate`, checks them too (plan step 7). A merge queue run has no pull request in its
   # event, so the script takes the number from the queue's branch. A push to `main` has no pull request, so it is left
-  # out there. Its own workflow still runs when the title or description is edited, and takes the tool footer off.
+  # out there. Its own workflow still runs when the title or description is edited. Like that workflow, this job may
+  # write the pull request, only to take off the footer the cloud tool appends: both run when a pull request opens, and
+  # a job that could only read would fail on a footer the other was about to take off, with no rerun to clear it.
   commit-authors:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

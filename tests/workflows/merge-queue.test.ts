@@ -52,14 +52,17 @@ test('a merge queue run tests everything, without reading a diff', () => {
   expect(got).toMatchObject({ docs: 'false', full: 'true', journeys: 'true' })
 })
 
-test('commit-authors runs inside gate on every pull request and merge queue run, and only reads', () => {
+test('commit-authors runs inside gate on every pull request and merge queue run, and may write only the pull request', () => {
   const check = job('commit-authors')
   expect(check).toContain("if: github.event_name != 'push'")
   expect(check).toContain('- run: node scripts/check-commit-authors.ts')
   expect(check).toContain(`PR_NUMBER: \${{ github.event.pull_request.number }}`)
   expect(check).toContain(`QUEUE_REF: \${{ github.event.merge_group.head_ref }}`)
   expect(check).toContain(`GH_TOKEN: \${{ github.token }}`)
-  expect(check).not.toContain(': write')
+  // It may write the pull request only to take off the tool footer, as the `commit-authors` workflow does: a job that
+  // could only read would race that workflow when a pull request opens, and fail on a footer about to be removed.
+  expect(check).toMatch(/\n {4}permissions:\n {6}contents: read\n {6}pull-requests: write\n/)
+  expect(check.match(/: write/g)).toHaveLength(1)
   expect(check).not.toMatch(/github\.event\.pull_request\.(title|body|head\.ref)/)
   const gate = job('gate')
   expect(gate).toMatch(/^ {4}needs: \[.*\bcommit-authors\b.*\]$/m)
