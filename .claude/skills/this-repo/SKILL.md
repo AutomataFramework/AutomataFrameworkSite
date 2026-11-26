@@ -64,7 +64,8 @@ The owner's own rules for this repo, beside the ones in CLAUDE.md (they are not 
   own files (`src/`, the pages, `public/`, `scripts/`) or the journeys changed, or the pull request has the
   `screenshots` label (the journeys take the pictures). When only journeys changed, just those play (Playwright
   `--only-changed=origin/main`); a change to the site reaches every journey.
-- The full run's six shards are `journeys / shards (<engine> <n>/2)`, with `journeys / engines (<engine>)` checks.
+- The full run's journeys are six pieces, `journeys / pieces (<n>/6)`, each playing its share of every engine one
+  after another; `gate` names an engine that failed and its piece.
   `site.yml`'s real-game journeys always run whole.
 - The docs-only path never covers the README.
 

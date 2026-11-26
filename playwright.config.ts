@@ -1,5 +1,5 @@
-// The journeys: the built site (dist/) driven in real Chromium, WebKit and Firefox, one project per engine so CI can run
-// them as parallel jobs. They run against `wrangler pages dev`, which serves a folder the way Cloudflare Pages does,
+// The journeys: the built site (dist/) driven in real Chromium, WebKit and Firefox, one project per engine, so a failing journey
+// names its engine and CI plays each engine's share of a piece on its own. They run against `wrangler pages dev`, which serves a folder the way Cloudflare Pages does,
 // headers and 404s included, with no account. BASE_URL points them at another address instead (the live site).
 import { defineConfig, type PlaywrightTestConfig } from '@playwright/test'
 

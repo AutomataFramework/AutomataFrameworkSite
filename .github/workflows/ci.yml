@@ -93,9 +93,6 @@ jobs:
         check:
           - 'check'
           - 'build'
-          - 'journeys / engines (chromium)'
-          - 'journeys / engines (webkit)'
-          - 'journeys / engines (firefox)'
     env:
       CHECK: ${{ matrix.check }}
     steps:
@@ -207,3 +204,20 @@ jobs:
         run: |
           node --input-type=module -e "$GATE"
         shell: bash
+      # Which engine failed, and in which piece: read from the result file each journeys piece leaves. Red when an engine
+      # failed or a piece left no line for an engine that applies.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: always() && needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true'
+        with:
+          sparse-checkout: scripts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: always() && needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true'
+        with:
+          pattern: results-piece-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/results
+      - name: Every engine passed in every journeys piece
+        if: always() && needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true'
+        run: node scripts/browser-pieces.ts "$RUNNER_TEMP/results"
+        env:
+          ENGINES: ${{ needs.plan.outputs.full == 'true' && '["chromium", "webkit", "firefox"]' || '["chromium"]' }}

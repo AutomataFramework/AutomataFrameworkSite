@@ -8,7 +8,7 @@ const ci = checkNames(readWorkflow('ci.yml'))
 const site = checkNames(readWorkflow('site.yml'))
 
 test('`ci` keeps the names `main` requires', () => {
-  expect(ci).toEqual(expect.arrayContaining(['check', 'build', 'journeys / engines']))
+  expect(ci).toEqual(expect.arrayContaining(['check', 'build', 'journeys / pieces']))
 })
 
 test('no check of `site` has the name of a check of `ci`', () => {
@@ -16,5 +16,5 @@ test('no check of `site` has the name of a check of `ci`', () => {
 })
 
 test('`site` names its real-game jobs for what they are', () => {
-  expect(site).toEqual(expect.arrayContaining(['build-real', 'journeys-real / engines']))
+  expect(site).toEqual(expect.arrayContaining(['build-real', 'journeys-real / pieces']))
 })
