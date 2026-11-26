@@ -222,27 +222,29 @@ jobs:
         run: node scripts/browser-pieces.ts "$RUNNER_TEMP/results"
         env:
           ENGINES: ${{ needs.plan.outputs.full == 'true' && '["chromium", "webkit", "firefox"]' || '["chromium"]' }}
-      # A full run: every journey file played in exactly one piece for every engine, against each engine's own list.
-      # Then the times it took go up as `test-times`, for the next runs to fill their pieces from.
+      # Every journey file the run listed (all of them on a full run, those changed on a draft that changed only
+      # journeys) played in exactly one piece for every engine, against each engine's own list. On a full run the times
+      # it took go up as `test-times`, for the next runs to fill their pieces from.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: always() && needs.plan.outputs.full == 'true' && needs.plan.outputs.docs != 'true'
+        if: always() && needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true'
         with:
           pattern: times-piece-*
           merge-multiple: true
           path: ${{ runner.temp }}/times
       - name: Every journey file played in exactly one piece
         id: cover
-        if: always() && needs.plan.outputs.full == 'true' && needs.plan.outputs.docs != 'true'
+        if: always() && needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true'
         run: node scripts/browser-fill.ts check "$RUNNER_TEMP/times"
         env:
-          ENGINES: '["chromium", "webkit", "firefox"]'
+          ENGINES: ${{ needs.plan.outputs.full == 'true' && '["chromium", "webkit", "firefox"]' || '["chromium"]' }}
+          FULL: ${{ needs.plan.outputs.full }}
       - name: Record the times
-        if: always() && steps.cover.outcome == 'success'
+        if: always() && needs.plan.outputs.full == 'true' && steps.cover.outcome == 'success'
         run: |
           mkdir -p "$RUNNER_TEMP/test-times"
           node scripts/browser-fill.ts record "$RUNNER_TEMP/times" "$RUNNER_TEMP/test-times/test-times.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always() && steps.cover.outcome == 'success'
+        if: always() && needs.plan.outputs.full == 'true' && steps.cover.outcome == 'success'
         with:
           name: test-times
           path: ${{ runner.temp }}/test-times/test-times.json

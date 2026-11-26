@@ -23,6 +23,16 @@ describe('judge: every engine must pass in every piece', () => {
     expect(PIECES).toBe(6)
   })
 
+  test('a piece with no test the change reaches (`none`, on a draft) is not a failure; anything else is', () => {
+    const some = files(['chromium'])
+    some.set(2, 'chromium none\n')
+    const verdict = judge(some, ['chromium'])
+    expect(verdict.ok).toBe(true)
+    expect(verdict.lines).toContain('ok  chromium had no test the change reaches in piece 2/6')
+    some.set(2, 'chromium skipped\n')
+    expect(judge(some, ['chromium']).ok).toBe(false)
+  })
+
   test('passes when every engine passed in every piece, with one line for each', () => {
     const verdict = judge(files(ALL), ALL)
     expect(verdict.ok).toBe(true)
