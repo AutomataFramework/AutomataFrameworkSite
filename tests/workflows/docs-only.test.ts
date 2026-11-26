@@ -70,6 +70,15 @@ test('a draft that changes code still gets the quick run', () => {
   expect(plan(['CLAUDE.md', 'src/index.ts'])).toMatchObject({ docs: 'false', full: 'false' })
 })
 
+// Step 6 (throwaway #123): a draft that changed only `wrangler.toml` played no journey and passed, though the journeys'
+// server refused the date it set. What the server reads reruns everything, as the build and test config do.
+test.each(['wrangler.toml', 'playwright.config.ts', 'vite.config.ts'])(
+  'a draft that changes %s, which the journeys depend on, runs everything',
+  (file) => {
+    expect(plan([file])).toMatchObject({ docs: 'false', full: 'true', journeys: 'true' })
+  },
+)
+
 test('the `docs` job stands in for exactly the checks main requires, and only on a docs-only run', () => {
   const docs = job('docs')
   expect(docs).toContain("if: needs.plan.outputs.docs == 'true'")

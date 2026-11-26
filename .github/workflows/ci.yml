@@ -67,8 +67,10 @@ jobs:
             others="$(grep -vE '^(CLAUDE\.md|docs/.+\.md)$' <<<"$changed" || true)"
             if [ -z "$others" ]; then
               docs=true
-            # A change to how things are installed, built or tested, or to the shared test files, reaches every test.
-            elif [ "$DRAFT" = true ] && ! grep -qE '^(tests/fixtures/|package\.json|pnpm-lock\.yaml|[^/]*\.config\.(ts|js)|tsconfig[^/]*\.json|\.github/)' <<<"$changed"; then
+            # A change to how things are installed, built, served or tested, or to the shared test files, reaches every
+            # test. `wrangler.toml` is how the journeys' server (`wrangler pages dev`) serves the site: a date it refuses
+            # broke every journey on a draft that played none (step 6 throwaway #123).
+            elif [ "$DRAFT" = true ] && ! grep -qE '^(tests/fixtures/|package\.json|pnpm-lock\.yaml|[^/]*\.config\.(ts|js)|tsconfig[^/]*\.json|wrangler\.toml|\.github/)' <<<"$changed"; then
               full=false
               grep -qE '^(src/|index\.html|404\.html|public/|scripts/|tests/journeys/)' <<<"$changed" || journeys=false
               grep -qE '^(src/|index\.html|404\.html|public/|scripts/)' <<<"$changed" || only=true
