@@ -68,6 +68,13 @@ The owner's own rules for this repo, beside the ones in CLAUDE.md (they are not 
   `site.yml`'s real-game journeys always run whole.
 - The docs-only path never covers the README.
 
+## Pull request bodies here
+
+- When the GitHub MCP tool adds its own footer to a pull request body, set the whole body again with
+  `mcp__github__update_pull_request` (its `body` field), then read the pull request back and check that the last
+  line is "Requested by **McThayDT**". `gh pr edit` does not work in cloud sessions: it needs GitHub's GraphQL API,
+  which is blocked there.
+
 ## Structure
 
 ```
