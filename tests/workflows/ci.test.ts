@@ -79,10 +79,12 @@ test('the journeys run in six pieces, each playing its share of every engine, an
   expect(pieces).toContain(`name: pieces (${expr('matrix.piece')}/6)`)
   expect(pieces).toContain('piece: [1, 2, 3, 4, 5, 6]')
   expect(pieces).toContain(`ENGINES: ${expr('inputs.engines')}`)
-  expect(pieces).toContain('pnpm test:journeys --project "$engine" --shard="$PIECE/6"')
-  // A failing engine marks the piece failed but the loop goes on to the next engine.
+  expect(pieces).not.toContain('--shard')
+  // A failing engine marks the piece failed but the loop goes on to the next engine; a piece a draft gave no file says
+  // `none`, which `gate` names.
   expect(pieces).toContain('result=failed\n')
-  expect(pieces).toContain('[ "$result" = passed ] || failed=1')
+  expect(pieces).toContain('result=none\n')
+  expect(pieces).toContain('[ "$result" = failed ] && failed=1')
   expect(pieces).toContain(`name: results-piece-${expr('matrix.piece')}`)
   expect(journeys).not.toContain('\n  engines:\n')
   const engines = `${expr(`needs.plan.outputs.full == 'true' && '["chromium", "webkit", "firefox"]' || '["chromium"]'`)}`
@@ -102,9 +104,11 @@ test('a failed journey leaves its trace and its error behind, for every engine',
   )
 })
 
-test('a full run plays the files the fill gives this piece, and `gate` checks each played in exactly one piece', () => {
+test('every run plays the files the fill gives this piece, and `gate` checks each played in exactly one piece', () => {
   const pieces = job(journeys, 'pieces')
-  expect(pieces).toContain('pnpm exec playwright test --list --reporter=json --project "$engine" > "$list"')
+  expect(pieces).toContain(
+    'pnpm exec playwright test --list --reporter=json --project "$engine" $ONLY > "$list"',
+  )
   expect(pieces).toContain(
     'mine="$(node scripts/browser-fill.ts files "$PIECE" "$list" "$RUNNER_TEMP/times/test-times.json")"',
   )
@@ -119,7 +123,13 @@ test('a full run plays the files the fill gives this piece, and `gate` checks ea
   expect(job(ci, 'journeys')).toContain(`full: ${expr("needs.plan.outputs.full == 'true'")}`)
   const gate = job(ci, 'gate')
   expect(gate).toContain('run: node scripts/browser-fill.ts check "$RUNNER_TEMP/times"')
-  expect(gate).toContain("if: always() && steps.cover.outcome == 'success'")
+  expect(gate).toMatch(
+    /id: cover\n {8}if: always\(\) && needs\.plan\.outputs\.docs != 'true' && needs\.plan\.outputs\.journeys == 'true'\n/,
+  )
+  // Times are recorded only from a full run, after its check passed.
+  expect(gate).toContain(
+    "if: always() && needs.plan.outputs.full == 'true' && steps.cover.outcome == 'success'",
+  )
   expect(gate).toContain('name: test-times')
 })
 

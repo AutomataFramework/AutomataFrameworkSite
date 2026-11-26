@@ -20,7 +20,7 @@ export type Verdict = {
 
 /**
  * Judges the pieces' files. `files` maps a piece's number to its file's text (a piece that left no file is absent);
- * `engines` are the engines this run asked for. Passes only when every piece has a `passed` line for every engine.
+ * `engines` are the engines this run asked for. Passes only when every piece has a `passed` (or, on a draft, `none`) line for every engine.
  */
 export function judge(files: ReadonlyMap<number, string>, engines: readonly string[]): Verdict {
   const lines: string[] = []
@@ -33,14 +33,19 @@ export function judge(files: ReadonlyMap<number, string>, engines: readonly stri
     }
     for (const engine of engines) {
       const result = results.get(engine)
+      // `none`: a draft whose change reaches no browser test this piece was given. `browser-fill.ts check` proves every
+      // file the change reaches ran in some piece, so a piece with none hides nothing.
+      const good = result === 'passed' || result === 'none'
       const what =
         result === 'passed'
           ? `${engine} passed in piece ${piece}/${PIECES}`
-          : result === 'failed'
-            ? `${engine} failed in piece ${piece}/${PIECES}`
-            : `${engine} has no result in piece ${piece}/${PIECES} (the piece was cancelled or did not run)`
-      lines.push(`${result === 'passed' ? 'ok ' : 'NO '} ${what}`)
-      if (result !== 'passed') failures.push(what)
+          : result === 'none'
+            ? `${engine} had no test the change reaches in piece ${piece}/${PIECES}`
+            : result === 'failed'
+              ? `${engine} failed in piece ${piece}/${PIECES}`
+              : `${engine} has no result in piece ${piece}/${PIECES} (the piece was cancelled or did not run)`
+      lines.push(`${good ? 'ok ' : 'NO '} ${what}`)
+      if (!good) failures.push(what)
     }
   }
   return { ok: engines.length > 0 && failures.length === 0, lines, failures }

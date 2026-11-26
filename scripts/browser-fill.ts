@@ -96,12 +96,15 @@ export type Verdict = {
 
 /**
  * Every listed file played in exactly one piece, for every engine. `lists` and `reports` are keyed `<piece> <engine>`;
- * a piece that left none for an engine is absent. A file played is one the engine's report has a result for.
+ * a piece that left none for an engine is absent. A file played is one the engine's report has a result for. Every
+ * piece must leave a list; a piece the fill gave no file (only on a draft) leaves no report. A full run lists every
+ * journey file, so a list with none fails it; a draft that changed only journeys lists only those, which may be none.
  */
 export function check(
   lists: ReadonlyMap<string, Report>,
   reports: ReadonlyMap<string, Report>,
   engines: readonly string[],
+  full = true,
 ): Verdict {
   const lines: string[] = []
   const failures: string[] = []
@@ -114,22 +117,29 @@ export function check(
     const playedIn = new Map<string, number[]>()
     for (let piece = 1; piece <= PIECES; piece += 1) {
       const list = lists.get(`${piece} ${engine}`)
-      const report = reports.get(`${piece} ${engine}`)
-      if (!list || !report) {
-        fail(`${engine} left no file list or no report in piece ${piece}/${PIECES}`)
+      if (!list) {
+        fail(`${engine} left no file list in piece ${piece}/${PIECES}`)
         continue
       }
       const files = listedFiles(list)
       if (wanted === undefined) wanted = files
       else if (JSON.stringify(files) !== JSON.stringify(wanted))
         fail(`${engine} listed other files in piece ${piece}/${PIECES}`)
-      const played = filesOf(report).filter(({ suite }) => resultsOf(suite).length > 0)
+      const played = filesOf(reports.get(`${piece} ${engine}`) ?? {}).filter(
+        ({ suite }) => resultsOf(suite).length > 0,
+      )
       for (const file of new Set(played.map(({ file }) => file))) {
         playedIn.set(file, [...(playedIn.get(file) ?? []), piece])
       }
     }
-    if (!wanted || wanted.length === 0) {
+    if (!wanted) {
       fail(`${engine} listed no journey files`)
+      continue
+    }
+    if (wanted.length === 0) {
+      if (full) fail(`${engine} listed no journey files`)
+      else lines.push(`ok  ${engine}: the change reaches no journey file`)
+      for (const file of playedIn.keys()) fail(`${engine}: ${file} played but is not in the list`)
       continue
     }
     let once = 0
@@ -165,17 +175,22 @@ export function readFolder(folder: string): { lists: Map<string, Report>; report
 /** One `test-times` artifact as GitHub lists it. */
 export type Artifact = {
   expired?: boolean
+  created_at?: string
   workflow_run?: { id?: number; head_branch?: string; head_repository_id?: number; repository_id?: number }
 }
 
 /**
  * The run whose `test-times` to fill from: the newest unexpired one made on `main`, or else on `branch`, and only from
  * a run of this repository's own branches, never a fork's branch that has the same name. GitHub lists newest first.
+ * Only one made before `before` (this run's start) counts, so every piece of a run picks the same one even when a newer
+ * run records times while the pieces ask.
  */
-export function pickRun(artifacts: readonly Artifact[], branch: string): number | undefined {
+export function pickRun(artifacts: readonly Artifact[], branch: string, before: string): number | undefined {
+  const cutoff = Date.parse(before)
   const own = artifacts.filter(
     (artifact) =>
       artifact.expired === false &&
+      Date.parse(artifact.created_at ?? '') < cutoff &&
       artifact.workflow_run?.id !== undefined &&
       artifact.workflow_run.head_repository_id === artifact.workflow_run.repository_id,
   )
@@ -190,14 +205,21 @@ async function main(): Promise<void> {
   const [command, ...rest] = process.argv.slice(2)
   if (command === 'pick') {
     // pick: writes `run=<id>` (empty when there is none) to the step's outputs.
-    const api = process.env.GITHUB_API_URL ?? 'https://api.github.com'
-    const response = await fetch(
-      `${api}/repos/${process.env.GITHUB_REPOSITORY}/actions/artifacts?name=test-times&per_page=100`,
-      { headers: { authorization: `Bearer ${process.env.GH_TOKEN}`, accept: 'application/vnd.github+json' } },
-    )
-    if (!response.ok) throw new Error(`GitHub answered ${response.status} when asked for the test times.`)
-    const { artifacts } = (await response.json()) as { artifacts: Artifact[] }
-    const run = pickRun(artifacts, process.env.BRANCH ?? '')
+    const api = `${process.env.GITHUB_API_URL ?? 'https://api.github.com'}/repos/${process.env.GITHUB_REPOSITORY}`
+    const ask = async (path: string): Promise<unknown> => {
+      const response = await fetch(`${api}${path}`, {
+        headers: { authorization: `Bearer ${process.env.GH_TOKEN}`, accept: 'application/vnd.github+json' },
+      })
+      if (!response.ok) throw new Error(`GitHub answered ${response.status} when asked for ${path}.`)
+      return response.json()
+    }
+    const { created_at: started } = (await ask(`/actions/runs/${process.env.GITHUB_RUN_ID}`)) as {
+      created_at: string
+    }
+    const { artifacts } = (await ask('/actions/artifacts?name=test-times&per_page=100')) as {
+      artifacts: Artifact[]
+    }
+    const run = pickRun(artifacts, process.env.BRANCH ?? '', started)
     console.log(
       run === undefined ? 'No recorded times yet: every file counts the same.' : `Times from run ${run}.`,
     )
@@ -205,13 +227,15 @@ async function main(): Promise<void> {
     return
   }
   if (command === 'files') {
-    // files <piece> <list.json> [times.json]: this piece's files, one per line.
+    // files <piece> <list.json> [times.json]: this piece's files, one per line. On a full run (FULL not `false`) a piece
+    // with none is an error; a draft's piece may have none, and prints nothing.
     const [piece, list, times] = rest
     const all = listedFiles(JSON.parse(readFileSync(list ?? '', 'utf8')) as Report)
     const recorded = times && existsSync(times) ? (JSON.parse(readFileSync(times, 'utf8')) as Times) : {}
-    const mine = fill(all, recorded)[Number(piece) - 1]
-    if (!mine || mine.length === 0) throw new Error(`Piece ${piece} has no files, out of ${all.length}.`)
-    console.log(mine.join('\n'))
+    const mine = fill(all, recorded)[Number(piece) - 1] ?? []
+    if (mine.length === 0 && process.env.FULL !== 'false')
+      throw new Error(`Piece ${piece} has no files, out of ${all.length}.`)
+    if (mine.length > 0) console.log(mine.join('\n'))
     return
   }
   if (command === 'record') {
@@ -229,7 +253,7 @@ async function main(): Promise<void> {
       throw new Error('Give ENGINES as a JSON list of engine names.')
     }
     const { lists, reports } = readFolder(rest[0] ?? '')
-    const verdict = check(lists, reports, engines)
+    const verdict = check(lists, reports, engines, process.env.FULL !== 'false')
     for (const line of verdict.lines) console.log(line)
     if (!verdict.ok) {
       const list = verdict.failures.map((failure) => `- ${failure}`).join('\n')

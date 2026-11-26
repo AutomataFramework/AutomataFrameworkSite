@@ -123,14 +123,41 @@ describe('check: every listed file played in exactly one piece, for every engine
     expect(check(lists, reports, ['chromium']).failures).toEqual([`chromium: ${first} played in no piece`])
   })
 
-  test('fails when a piece left nothing for an engine, or listed other files', () => {
-    const { lists, reports } = folder(ALL, fill(files, {}))
+  test('fails when a piece left no list, left no report for its files, or listed other files', () => {
+    const pieces = fill(files, {})
+    const { lists, reports } = folder(ALL, pieces)
+    lists.delete('3 chromium')
     reports.delete('4 firefox')
     lists.set('2 webkit', report(['tests/journeys/other.journey.ts']))
     const verdict = check(lists, reports, ALL)
     expect(verdict.ok).toBe(false)
-    expect(verdict.failures).toContain('firefox left no file list or no report in piece 4/6')
+    expect(verdict.failures).toContain('chromium left no file list in piece 3/6')
+    for (const file of pieces[3] ?? [])
+      expect(verdict.failures).toContain(`firefox: ${file} played in no piece`)
     expect(verdict.failures).toContain('webkit listed other files in piece 2/6')
+  })
+
+  test('a draft may give a piece no file, and still every listed file played in exactly one piece', () => {
+    const few = files.slice(0, 3)
+    const pieces = fill(few, {})
+    expect(pieces.filter((piece) => piece.length === 0)).toHaveLength(PIECES - 3)
+    const { lists, reports } = folder(['chromium'], pieces)
+    for (const key of lists.keys()) lists.set(key, report(few, 0))
+    for (const [key, played] of reports) if ((played.suites ?? []).length === 0) reports.delete(key)
+    const verdict = check(lists, reports, ['chromium'], false)
+    expect(verdict.failures).toEqual([])
+    expect(verdict.lines).toContain('ok  chromium: 3 of 3 files played in exactly one piece')
+    reports.clear()
+    expect(check(lists, reports, ['chromium'], false).failures).toHaveLength(3)
+  })
+
+  test('a draft that reaches no journey passes and says so; a full run that lists none fails', () => {
+    const { lists } = folder(['chromium'], fill(files, {}))
+    for (const key of lists.keys()) lists.set(key, report([], 0))
+    const draft = check(lists, new Map(), ['chromium'], false)
+    expect(draft.failures).toEqual([])
+    expect(draft.lines).toContain('ok  chromium: the change reaches no journey file')
+    expect(check(lists, new Map(), ['chromium']).failures).toEqual(['chromium listed no journey files'])
   })
 
   test('no engine asked for is never a pass', () => {
@@ -148,23 +175,39 @@ describe('check: every listed file played in exactly one piece, for every engine
   })
 })
 
-describe("pickRun: times only from this repository's own runs, `main` first", () => {
-  const artifact = (id: number, branch: string, expired = false, fork = false): Artifact => ({
+describe("pickRun: times only from this repository's own runs, `main` first, made before this run started", () => {
+  const START = '2026-11-26T05:00:00Z'
+  const artifact = (
+    id: number,
+    branch: string,
+    expired = false,
+    fork = false,
+    at = '2026-11-26T04:00:00Z',
+  ): Artifact => ({
     expired,
+    created_at: at,
     workflow_run: { id, head_branch: branch, head_repository_id: fork ? 2 : 1, repository_id: 1 },
   })
 
   test("the newest from main, then this branch's, and none when there is neither", () => {
     const listed = [artifact(9, 'feature'), artifact(8, 'main'), artifact(7, 'main')]
-    expect(pickRun(listed, 'feature')).toBe(8)
-    expect(pickRun([artifact(9, 'feature'), artifact(5, 'other')], 'feature')).toBe(9)
-    expect(pickRun([artifact(5, 'other')], 'feature')).toBeUndefined()
-    expect(pickRun([artifact(5, 'other')], '')).toBeUndefined()
+    expect(pickRun(listed, 'feature', START)).toBe(8)
+    expect(pickRun([artifact(9, 'feature'), artifact(5, 'other')], 'feature', START)).toBe(9)
+    expect(pickRun([artifact(5, 'other')], 'feature', START)).toBeUndefined()
+    expect(pickRun([artifact(5, 'other')], '', START)).toBeUndefined()
   })
 
   test("never an expired one, and never a fork's branch called `main`", () => {
     expect(
-      pickRun([artifact(9, 'main', true), artifact(8, 'main', false, true), artifact(7, 'main')], 'x'),
+      pickRun([artifact(9, 'main', true), artifact(8, 'main', false, true), artifact(7, 'main')], 'x', START),
     ).toBe(7)
+  })
+
+  test('one made after this run started is left out, so every piece picks the same run', () => {
+    const listed = [artifact(9, 'main', false, false, '2026-11-26T05:03:00Z'), artifact(8, 'main')]
+    expect(pickRun(listed, 'x', START)).toBe(8)
+    expect(pickRun(listed, 'x', '2026-11-26T05:04:00Z')).toBe(9)
+    const { created_at: _, ...undated } = artifact(8, 'main')
+    expect(pickRun([undated], 'x', START)).toBeUndefined()
   })
 })
