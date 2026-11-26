@@ -81,7 +81,8 @@ test('the journeys run in six pieces, each playing its share of every engine, an
   expect(pieces).toContain(`ENGINES: ${expr('inputs.engines')}`)
   expect(pieces).toContain('pnpm test:journeys --project "$engine" --shard="$PIECE/6"')
   // A failing engine marks the piece failed but the loop goes on to the next engine.
-  expect(pieces).toContain('then result=passed; else result=failed failed=1; fi')
+  expect(pieces).toContain('result=failed\n')
+  expect(pieces).toContain('[ "$result" = passed ] || failed=1')
   expect(pieces).toContain(`name: results-piece-${expr('matrix.piece')}`)
   expect(journeys).not.toContain('\n  engines:\n')
   const engines = `${expr(`needs.plan.outputs.full == 'true' && '["chromium", "webkit", "firefox"]' || '["chromium"]'`)}`
@@ -99,4 +100,31 @@ test('a failed journey leaves its trace and its error behind, for every engine',
   expect(pieces).toMatch(
     /- uses: actions\/upload-artifact@[0-9a-f]{40} # v\S+\n {8}if: failure\(\)\n {8}with:\n {10}name: test-results-piece-\$\{\{ matrix\.piece \}\}\n {10}path: ci-out\/test-results\/\*\*/,
   )
+})
+
+test('a full run plays the files the fill gives this piece, and `gate` checks each played in exactly one piece', () => {
+  const pieces = job(journeys, 'pieces')
+  expect(pieces).toContain('pnpm exec playwright test --list --reporter=json --project "$engine" > "$list"')
+  expect(pieces).toContain(
+    'mine="$(node scripts/browser-fill.ts files "$PIECE" "$list" "$RUNNER_TEMP/times/test-times.json")"',
+  )
+  expect(pieces).toContain('--project "$engine" --reporter=list,json')
+  expect(pieces).toContain(`"\${files[@]}"; then result=passed; fi`)
+  expect(pieces).toContain(`name: times-piece-${expr('matrix.piece')}`)
+  // The times come only from this repository's runs, found by the script, which needs `actions: read`.
+  expect(pieces).toContain('run: node scripts/browser-fill.ts pick')
+  expect(pieces).toMatch(/\n {4}permissions:\n {6}actions: read\n/)
+  expect(job(ci, 'journeys')).toContain(`full: ${expr("needs.plan.outputs.full == 'true'")}`)
+  const gate = job(ci, 'gate')
+  expect(gate).toContain('run: node scripts/browser-fill.ts check "$RUNNER_TEMP/times"')
+  expect(gate).toContain("if: always() && steps.cover.outcome == 'success'")
+  expect(gate).toContain('name: test-times')
+})
+
+test('one server serves every engine in a piece, started in the step that plays them', () => {
+  const pieces = job(journeys, 'pieces')
+  expect(pieces.match(/wrangler pages dev dist/g) ?? []).toHaveLength(1)
+  expect(pieces).toContain('BASE_URL: http://127.0.0.1:8788')
+  const step = pieces.slice(pieces.indexOf("- name: Every engine's share"))
+  expect(step.indexOf('wrangler pages dev dist')).toBeLessThan(step.indexOf('for engine in'))
 })

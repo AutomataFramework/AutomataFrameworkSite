@@ -26,6 +26,11 @@ on:
           that changed journeys and not the site asks for it.
         type: boolean
         default: false
+      full:
+        description: A full run plays every journey file, the pieces filled from the times `main` recorded, and leaves
+          each engine's file list and report for `ci`'s `gate` to check. A draft of `ci` plays `--shard` pieces instead.
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -73,21 +78,68 @@ jobs:
       # The image's browsers fit only the Playwright they came with: say so plainly if the lockfile moves without it.
       - name: The image's Playwright is the lockfile's
         run: test "$(pnpm exec playwright --version)" = "Version 1.63.0"
+      # A full run fills its pieces from the newest times a full run recorded: from `main`, or from this branch while
+      # `main` has none. With none yet, every file counts the same.
+      - name: Find the recorded times
+        id: times
+        if: inputs.full
+        run: node scripts/browser-fill.ts pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+      - name: Download the recorded times
+        if: inputs.full && steps.times.outputs.run != ''
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: test-times
+          run-id: ${{ steps.times.outputs.run }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/times
       # Each engine's share of this piece, one engine after another, so a piece's log has one result line per engine and
       # `ci`'s `gate` can name the engine that failed. Every engine plays even after one fails, so a whole run reports
       # them all. Each engine keeps its own pictures and its own Playwright results (a failed journey's trace), since
       # the journeys name a picture's file without the browser in it and Playwright empties its results folder on start.
+      # A full run plays this piece's files from the fill (`scripts/browser-fill.ts`), and leaves the engine's file list
+      # and JSON report; a draft plays Playwright's own `--shard`. One server serves every engine, as Cloudflare Pages
+      # would serve the folder, started in this same step so it lives as long as the journeys do: `BASE_URL` points them
+      # at it, so Playwright does not start (and stop) a server of its own for each engine.
       - name: Every engine's share of piece ${{ matrix.piece }}
         env:
           ENGINES: ${{ inputs.engines }}
           PIECE: ${{ matrix.piece }}
           MAX_FAILURES: ${{ inputs.max-failures }}
+          FULL: ${{ inputs.full }}
+          BASE_URL: http://127.0.0.1:8788
+          WRANGLER_SEND_METRICS: 'false'
+          UP: |
+            for (let second = 0; second < 120; second += 1) {
+              try {
+                if ((await fetch('http://127.0.0.1:8788/')).ok) process.exit(0)
+              } catch {}
+              await new Promise((resolve) => setTimeout(resolve, 1000))
+            }
+            console.error('The site did not answer at http://127.0.0.1:8788/ within 120 seconds.')
+            process.exit(1)
         run: |
-          mkdir -p ci-out/results ci-out/screens ci-out/test-results
+          mkdir -p ci-out/results ci-out/screens ci-out/test-results ci-out/times
+          pnpm exec wrangler pages dev dist --ip 127.0.0.1 --port 8788 > "$RUNNER_TEMP/wrangler.log" 2>&1 &
+          node --input-type=module -e "$UP" || { cat "$RUNNER_TEMP/wrangler.log"; exit 1; }
           failed=0
           for engine in $(node -p 'JSON.parse(process.env.ENGINES).join(" ")'); do
-            if pnpm test:journeys --project "$engine" --shard="$PIECE/6" --max-failures="$MAX_FAILURES" \
-              --output="ci-out/test-results/$engine" $ONLY; then result=passed; else result=failed failed=1; fi
+            result=failed
+            if [ "$FULL" = true ]; then
+              list="ci-out/times/list-$PIECE-$engine.json"
+              if pnpm exec playwright test --list --reporter=json --project "$engine" > "$list" &&
+                mine="$(node scripts/browser-fill.ts files "$PIECE" "$list" "$RUNNER_TEMP/times/test-times.json")"; then
+                mapfile -t files <<<"$mine"
+                printf 'piece %s plays, in %s:\n%s\n' "$PIECE" "$engine" "$mine"
+                if PLAYWRIGHT_JSON_OUTPUT_FILE="$PWD/ci-out/times/report-$PIECE-$engine.json" pnpm test:journeys \
+                  --project "$engine" --reporter=list,json --max-failures="$MAX_FAILURES" \
+                  --output="ci-out/test-results/$engine" "${files[@]}"; then result=passed; fi
+              fi
+            elif pnpm test:journeys --project "$engine" --shard="$PIECE/6" --max-failures="$MAX_FAILURES" \
+              --output="ci-out/test-results/$engine" $ONLY; then result=passed; fi
+            [ "$result" = passed ] || failed=1
             echo "$engine $result in piece $PIECE/6"
             echo "$engine $result" >> "ci-out/results/piece-$PIECE.txt"
             if [ -d tests/journeys/__screenshots__ ]; then
@@ -97,6 +149,14 @@ jobs:
             fi
           done
           exit "$failed"
+      # What `ci`'s `gate` checks on a full run: each engine's file list and report from this piece.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && inputs.full
+        with:
+          name: times-piece-${{ matrix.piece }}
+          path: ci-out/times/
+          if-no-files-found: ignore
+          overwrite: true
       # What `ci`'s `gate` reads to name a failing engine. A job run again replaces its own file.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
