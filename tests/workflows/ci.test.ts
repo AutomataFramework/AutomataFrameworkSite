@@ -46,7 +46,7 @@ const image = new RegExp(
 
 test.each([
   ['the build', () => job(ci, 'build')],
-  ['the journeys', () => job(journeys, 'shards')],
+  ['the journeys', () => job(journeys, 'pieces')],
   ['the real build', () => job(readWorkflow('site.yml'), 'build-real')],
   ['the live check', () => job(readWorkflow('site.yml'), 'live')],
 ])(
@@ -74,21 +74,29 @@ test('the called workflow is given the artifact', () => {
   expect(head(journeys)).toMatch(/workflow_call:\n {4}inputs:\n {6}site-artifact:/)
 })
 
-test('the journeys run per engine in two shards, and each engine has one check that no other cancels', () => {
-  const engines = job(journeys, 'engines')
-  expect(engines).toContain('engine: [chromium, webkit, firefox]')
-  expect(engines).toContain('fail-fast: false')
-  const shards = job(journeys, 'shards')
-  expect(shards).toContain('shard: [1, 2]')
-  expect(shards).toContain(
-    `pnpm test:journeys --project ${expr('matrix.engine')} --shard=${expr('matrix.shard')}/2`,
-  )
+test('the journeys run in six pieces, each playing its share of every engine, and `gate` names a failing one', () => {
+  const pieces = job(journeys, 'pieces')
+  expect(pieces).toContain(`name: pieces (${expr('matrix.piece')}/6)`)
+  expect(pieces).toContain('piece: [1, 2, 3, 4, 5, 6]')
+  expect(pieces).toContain(`ENGINES: ${expr('inputs.engines')}`)
+  expect(pieces).toContain('pnpm test:journeys --project "$engine" --shard="$PIECE/6"')
+  // A failing engine marks the piece failed but the loop goes on to the next engine.
+  expect(pieces).toContain('then result=passed; else result=failed failed=1; fi')
+  expect(pieces).toContain(`name: results-piece-${expr('matrix.piece')}`)
+  expect(journeys).not.toContain('\n  engines:\n')
+  const engines = `${expr(`needs.plan.outputs.full == 'true' && '["chromium", "webkit", "firefox"]' || '["chromium"]'`)}`
+  expect(job(ci, 'journeys')).toContain(`engines: ${engines}`)
+  expect(job(ci, 'gate')).toContain(`ENGINES: ${engines}`)
+  expect(job(ci, 'gate')).toContain('run: node scripts/browser-pieces.ts "$RUNNER_TEMP/results"')
+  const script = readFileSync(new URL('../../scripts/browser-pieces.ts', import.meta.url), 'utf8')
+  expect(script).toContain('export const PIECES = 6')
 })
 
 // Audit F7: a journey failed once on code that had just passed and the run kept nothing to say why.
 test('a failed journey leaves its trace and its error behind, for every engine', () => {
-  const shards = job(journeys, 'shards')
-  expect(shards).toMatch(
-    /- uses: actions\/upload-artifact@[0-9a-f]{40} # v\S+\n {8}if: failure\(\)\n {8}with:\n {10}name: test-results-\$\{\{ matrix\.engine \}\}-\$\{\{ matrix\.shard \}\}\n {10}path: test-results\/\*\*/,
+  const pieces = job(journeys, 'pieces')
+  expect(pieces).toContain('--output="ci-out/test-results/$engine"')
+  expect(pieces).toMatch(
+    /- uses: actions\/upload-artifact@[0-9a-f]{40} # v\S+\n {8}if: failure\(\)\n {8}with:\n {10}name: test-results-piece-\$\{\{ matrix\.piece \}\}\n {10}path: ci-out\/test-results\/\*\*/,
   )
 })

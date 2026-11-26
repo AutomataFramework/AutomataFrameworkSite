@@ -32,7 +32,7 @@ export function jobIds(workflow: string): string[] {
 
 /**
  * The names GitHub shows for the workflow's checks, which is what a required check matches. A job that calls another
- * workflow shows as `<its id> / <the called job's id>` (the engine suffix aside), as in `journeys / engines`.
+ * workflow shows as `<its id> / <the called job's id>` (the piece suffix aside), as in `journeys / pieces`.
  */
 export function checkNames(workflow: string): string[] {
   return jobIds(workflow).flatMap((id) => {

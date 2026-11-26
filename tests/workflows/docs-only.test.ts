@@ -74,13 +74,7 @@ test('the `docs` job stands in for exactly the checks main requires, and only on
   const docs = job('docs')
   expect(docs).toContain("if: needs.plan.outputs.docs == 'true'")
   const names = [...docs.matchAll(/^ {10}- '([^']+)'$/gm)].map((match) => match[1])
-  expect(names).toEqual([
-    'check',
-    'build',
-    'journeys / engines (chromium)',
-    'journeys / engines (webkit)',
-    'journeys / engines (firefox)',
-  ])
+  expect(names).toEqual(['check', 'build'])
 })
 
 test('every job that tests is left out of a docs-only run, so no skipped job wears a required name', () => {

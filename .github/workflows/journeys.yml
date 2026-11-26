@@ -1,6 +1,9 @@
-# The journeys: the built site driven in real Chromium, WebKit and Firefox, each engine in two shards side by side (the
-# Owner, 2026-11-15), and one `engines` check per engine so a failing engine is named by its check. Called by `ci` (with the stand-in game) and by `site` (with the real game). Every action is pinned
-# to a commit.
+# The journeys: the built site driven in real Chromium, WebKit and Firefox, in six pieces side by side, each piece playing
+# its share of every engine one engine after another. The Owner asked on 2026-11-15 for each engine in two shards (6
+# jobs) and an `engines` check per engine, so a failing engine is named; on 2026-11-25 the Owner chose the workflow
+# page's Settings, which allow 6 browser pieces. A failing engine is still named: each piece's log prints one result
+# line per engine, and `ci`'s `gate` names each engine that failed and in which piece. Called by `ci` (with the
+# stand-in game) and by `site` (with the real game). Every action is pinned to a commit.
 name: journeys
 
 on:
@@ -28,8 +31,10 @@ permissions:
   contents: read
 
 jobs:
-  shards:
-    name: shards (${{ matrix.engine }} ${{ matrix.shard }}/2)
+  # GitHub runs 20 of this organization's jobs at once; the 9 journey jobs a run had (6 shards and 3 `engines`) are
+  # now 6.
+  pieces:
+    name: pieces (${{ matrix.piece }}/6)
     runs-on: ubuntu-latest
     # Playwright's own image for the version the lockfile pins: the browsers and the system libraries they need are
     # already in it, so nothing comes from the runner's package mirror, whose slow days left `install-deps` hanging
@@ -42,11 +47,10 @@ jobs:
       actions: read
       contents: read
     strategy:
-      # Stopping early (a draft) stops the other shards too; a whole run lets every shard finish.
+      # Stopping early (a draft) stops the other pieces too; a whole run lets every piece finish.
       fail-fast: ${{ inputs.max-failures != 0 }}
       matrix:
-        engine: ${{ fromJSON(inputs.engines) }}
-        shard: [1, 2]
+        piece: [1, 2, 3, 4, 5, 6]
     env:
       ONLY: ${{ inputs.only-changed && '--only-changed=origin/main' || '' }}
     steps:
@@ -69,45 +73,52 @@ jobs:
       # The image's browsers fit only the Playwright they came with: say so plainly if the lockfile moves without it.
       - name: The image's Playwright is the lockfile's
         run: test "$(pnpm exec playwright --version)" = "Version 1.63.0"
-      - run: pnpm test:journeys --project ${{ matrix.engine }} --shard=${{ matrix.shard }}/2 --max-failures=${{ inputs.max-failures }} $ONLY
+      # Each engine's share of this piece, one engine after another, so a piece's log has one result line per engine and
+      # `ci`'s `gate` can name the engine that failed. Every engine plays even after one fails, so a whole run reports
+      # them all. Each engine keeps its own pictures and its own Playwright results (a failed journey's trace), since
+      # the journeys name a picture's file without the browser in it and Playwright empties its results folder on start.
+      - name: Every engine's share of piece ${{ matrix.piece }}
+        env:
+          ENGINES: ${{ inputs.engines }}
+          PIECE: ${{ matrix.piece }}
+          MAX_FAILURES: ${{ inputs.max-failures }}
+        run: |
+          mkdir -p ci-out/results ci-out/screens ci-out/test-results
+          failed=0
+          for engine in $(node -p 'JSON.parse(process.env.ENGINES).join(" ")'); do
+            if pnpm test:journeys --project "$engine" --shard="$PIECE/6" --max-failures="$MAX_FAILURES" \
+              --output="ci-out/test-results/$engine" $ONLY; then result=passed; else result=failed failed=1; fi
+            echo "$engine $result in piece $PIECE/6"
+            echo "$engine $result" >> "ci-out/results/piece-$PIECE.txt"
+            if [ -d tests/journeys/__screenshots__ ]; then
+              mkdir -p "ci-out/screens/$engine"
+              cp -r tests/journeys/__screenshots__/. "ci-out/screens/$engine"/
+              rm -rf tests/journeys/__screenshots__
+            fi
+          done
+          exit "$failed"
+      # What `ci`'s `gate` reads to name a failing engine. A job run again replaces its own file.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: results-piece-${{ matrix.piece }}
+          path: ci-out/results/
+          if-no-files-found: ignore
+          overwrite: true
       # Pictures a person looks at (the drunk-grandma check); nothing compares them.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: screens-${{ matrix.engine }}-${{ matrix.shard }}
-          path: tests/journeys/__screenshots__/**
+          name: screens-piece-${{ matrix.piece }}
+          path: ci-out/screens/
           if-no-files-found: ignore
-      # What a failed journey leaves: Playwright's trace and the error's context for each, so a failure that does not
-      # come again can still be read. Open a trace with `pnpm exec playwright show-trace <file>`.
+          overwrite: true
+      # What a failed journey leaves: Playwright's trace and the error's context for each, per engine, so a failure that
+      # does not come again can still be read. Open a trace with `pnpm exec playwright show-trace <file>`.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
-          name: test-results-${{ matrix.engine }}-${{ matrix.shard }}
-          path: test-results/**
+          name: test-results-piece-${{ matrix.piece }}
+          path: ci-out/test-results/**
           retention-days: 14
           if-no-files-found: ignore
-
-  # One check per engine, `engines (<engine>)`, green only when both of that engine's shards passed, so the names
-  # main's protection asks for stay as they were. An engine a draft left out passes and says so.
-  engines:
-    needs: shards
-    if: always()
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-    strategy:
-      fail-fast: false
-      matrix:
-        engine: [chromium, webkit, firefox]
-    env:
-      GH_TOKEN: ${{ github.token }}
-      PLAYED: ${{ contains(fromJSON(inputs.engines), matrix.engine) }}
-    steps:
-      - name: Both shards of ${{ matrix.engine }} passed
-        run: |
-          set -euo pipefail
-          if [ "$PLAYED" != true ]; then echo "${{ matrix.engine }} was left out of this draft's run."; exit 0; fi
-          results="$(gh run view "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --attempt "$GITHUB_RUN_ATTEMPT" --json jobs \
-            --jq '.jobs[] | select(.name | test("shards \\(${{ matrix.engine }} ")) | "\(.name): \(.conclusion)"')"
-          echo "$results"
-          [ "$(grep -c ': success$' <<<"$results")" -eq 2 ]
