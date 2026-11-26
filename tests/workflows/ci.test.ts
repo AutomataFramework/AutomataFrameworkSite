@@ -110,6 +110,8 @@ test('a full run plays the files the fill gives this piece, and `gate` checks ea
   )
   expect(pieces).toContain('--project "$engine" --reporter=list,json')
   expect(pieces).toContain(`"\${files[@]}"; then result=passed; fi`)
+  // The container's own shell is `sh`, which has no lists: the step says Bash.
+  expect(pieces).toMatch(/- name: Every engine's share of piece .*\n(?: {8}#.*\n)* {8}shell: bash\n/)
   expect(pieces).toContain(`name: times-piece-${expr('matrix.piece')}`)
   // The times come only from this repository's runs, found by the script, which needs `actions: read`.
   expect(pieces).toContain('run: node scripts/browser-fill.ts pick')

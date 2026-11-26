@@ -104,6 +104,8 @@ jobs:
       # would serve the folder, started in this same step so it lives as long as the journeys do: `BASE_URL` points them
       # at it, so Playwright does not start (and stop) a server of its own for each engine.
       - name: Every engine's share of piece ${{ matrix.piece }}
+        # Bash, not the container's `sh`: the piece's files are read into a list.
+        shell: bash
         env:
           ENGINES: ${{ inputs.engines }}
           PIECE: ${{ matrix.piece }}
