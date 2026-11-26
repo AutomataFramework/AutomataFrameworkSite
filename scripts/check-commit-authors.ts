@@ -351,11 +351,22 @@ async function withoutToolFooter(repo: string, number: string, token: string, bo
   return stripped
 }
 
+/**
+ * The pull request to check. A pull request run is given its number. A merge queue run has none in its event, so the
+ * number comes from the branch the queue tests on, `gh-readonly-queue/<base>/pr-<number>-<commit>`. The commit the
+ * queue makes to test the merge is GitHub's and is not one of the pull request's own, so it is not checked.
+ */
+export function pullNumber(prNumber: string | undefined, queueRef: string | undefined): string | undefined {
+  if (prNumber !== undefined && prNumber !== '') return prNumber
+  return queueRef?.match(/^(?:refs\/heads\/)?gh-readonly-queue\/[^/]+\/pr-(\d+)-[0-9a-f]+$/)?.[1]
+}
+
 /** Reads the pull request named by the environment, prints what is wrong, and fails the job if anything is. */
 async function main(): Promise<void> {
-  const { GITHUB_REPOSITORY: repo, PR_NUMBER: number, GH_TOKEN: token } = process.env
+  const { GITHUB_REPOSITORY: repo, PR_NUMBER, QUEUE_REF, GH_TOKEN: token } = process.env
+  const number = pullNumber(PR_NUMBER, QUEUE_REF)
   if (repo === undefined || number === undefined || token === undefined) {
-    throw new Error('GITHUB_REPOSITORY, PR_NUMBER and GH_TOKEN must be set.')
+    throw new Error('GITHUB_REPOSITORY, GH_TOKEN, and PR_NUMBER or a merge queue QUEUE_REF must be set.')
   }
   const pull = (await get(`/repos/${repo}/pulls/${number}`, token)) as {
     title: string
