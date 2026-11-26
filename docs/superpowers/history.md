@@ -102,6 +102,15 @@ None yet.
   reset is likely the network on the way to the live site rather than the page; not proven and not fixed. Next step
   if it shows again: look at how often the live check's loads are reset, and whether that job should retry a reset
   load once.
+- `pnpm build` (`scripts/take-pictures.ts`), check `build`, `ci` run 45774019817 on `main` at `f6bc1fc` (the merge of
+  #126, 2026-11-26 07:16 UTC): Chromium refused a screenshot, "Protocol error (Page.captureScreenshot): Unable to
+  capture screenshot", about 2 s into the step, so most likely the game's picture, the first one taken. The next push
+  to `main` built. 1 failure in 195 builds over 2026-11-24 to 26 (`ci` and `site`); not reproduced in 360 local runs
+  (200 alone, 160 four at once beside four busy CPUs) or by losing the WebGL context, a busy page or a resize mid-shot.
+  Fix (#128): before the first screenshot the build waits until the page has drawn two frames, a wait on the page and
+  not a second try, and a refused screenshot now stops the build with a sentence naming the picture. Not proven fixed,
+  since it never failed here. Next step if it shows again: the message names the picture; look at what that page is
+  doing when Chromium refuses it.
 
 ## Lessons
 

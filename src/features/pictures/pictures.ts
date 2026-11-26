@@ -72,9 +72,10 @@ interface Shootable {
 /**
  * Pictures until two in a row are the same bytes. A game that never stands still (the demo will gain a title screen and
  * music) keeps the last one after `giveUpMs` when `keepMoving`, because a picture that will not settle must not stop
- * every build of the site; the site's own two pictures must settle, or it is a `PictureError`.
+ * every build of the site; the site's own two pictures must settle, or it is a `PictureError`. A screenshot Chromium
+ * refuses is a `PictureError` that names the picture, so a failed build says which one it was.
  */
-async function settled(
+export async function settled(
   page: Shootable,
   file: string,
   giveUpMs: number,
@@ -83,7 +84,13 @@ async function settled(
   const started = Date.now()
   let last: Buffer | undefined
   for (;;) {
-    const shot = await page.screenshot({ type: 'png' })
+    let shot: Buffer
+    try {
+      shot = await page.screenshot({ type: 'png' })
+    } catch (error) {
+      const why = error instanceof Error ? (error.message.split('\n')[0] ?? '') : String(error)
+      throw new PictureError(`${file}: Chromium could not take the picture (${why}).`)
+    }
     if (last?.equals(shot)) return shot
     if (Date.now() - started > giveUpMs) {
       if (!keepMoving)
@@ -156,6 +163,13 @@ export async function takePictures(options: {
           }
           await page.evaluate(() => document.fonts.ready)
           await page.waitForFunction(() => [...document.images].every((image) => image.complete))
+          // "Playing" means the game has started, not that it has drawn. Chromium once refused the game's first
+          // screenshot about a second after it started (Site run 45774019817), so wait until the page has drawn two
+          // frames with everything above in place: a wait on the page, not a sleep and not a second try.
+          await page.evaluate(
+            () =>
+              new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))),
+          )
           const game = picture.file === 'game.png'
           const bytes = await settled(page, picture.file, game ? GAME_SETTLE_MS : SITE_SETTLE_MS, game)
           writeFileSync(join(options.siteDir, picture.file), bytes)
