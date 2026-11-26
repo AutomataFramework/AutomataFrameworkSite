@@ -167,6 +167,7 @@ jobs:
       engines: ${{ needs.plan.outputs.full == 'true' && '["chromium", "webkit", "firefox"]' || '["chromium"]' }}
       max-failures: ${{ needs.plan.outputs.full != 'true' && 1 || 0 }}
       only-changed: ${{ needs.plan.outputs.only == 'true' }}
+      full: ${{ needs.plan.outputs.full == 'true' }}
 
   # The one aggregate check main requires beside the names above. `plan` decides which checks apply to this run; this
   # passes only when each of those ran and passed and every other was left out by `plan`, so a job skipped because
@@ -221,3 +222,28 @@ jobs:
         run: node scripts/browser-pieces.ts "$RUNNER_TEMP/results"
         env:
           ENGINES: ${{ needs.plan.outputs.full == 'true' && '["chromium", "webkit", "firefox"]' || '["chromium"]' }}
+      # A full run: every journey file played in exactly one piece for every engine, against each engine's own list.
+      # Then the times it took go up as `test-times`, for the next runs to fill their pieces from.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: always() && needs.plan.outputs.full == 'true' && needs.plan.outputs.docs != 'true'
+        with:
+          pattern: times-piece-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/times
+      - name: Every journey file played in exactly one piece
+        id: cover
+        if: always() && needs.plan.outputs.full == 'true' && needs.plan.outputs.docs != 'true'
+        run: node scripts/browser-fill.ts check "$RUNNER_TEMP/times"
+        env:
+          ENGINES: '["chromium", "webkit", "firefox"]'
+      - name: Record the times
+        if: always() && steps.cover.outcome == 'success'
+        run: |
+          mkdir -p "$RUNNER_TEMP/test-times"
+          node scripts/browser-fill.ts record "$RUNNER_TEMP/times" "$RUNNER_TEMP/test-times/test-times.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && steps.cover.outcome == 'success'
+        with:
+          name: test-times
+          path: ${{ runner.temp }}/test-times/test-times.json
+          if-no-files-found: error
