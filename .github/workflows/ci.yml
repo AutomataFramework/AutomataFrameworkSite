@@ -14,6 +14,10 @@ on:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   push:
     branches: [main, 'merge-queue/**']
+  # GitHub's merge queue (plan step 7) tests each pull request merged with current `main` before it lands. It runs the
+  # whole suite: `plan` reads no diff for it, so everything is `true`.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -176,8 +180,33 @@ jobs:
   # passes only when each of those ran and passed and every other was left out by `plan`, so a job skipped because
   # something before it failed or was cancelled never counts as passed. A draft's is `quick gate`, which main never
   # requires, so only a full run (or a docs-only one) can let a pull request merge. A new job is added to both lists.
+  # The commits and the words of the pull request (`scripts/check-commit-authors.ts`), checked inside `gate` so that the
+  # merge queue, which waits only on `gate`, checks them too (plan step 7). A merge queue run has no pull request in its
+  # event, so the script takes the number from the queue's branch. A push to `main` has no pull request, so it is left
+  # out there. Its own workflow still runs when the title or description is edited. Like that workflow, this job may
+  # write the pull request, only to take off the footer the cloud tool appends: both run when a pull request opens, and
+  # a job that could only read would fail on a footer the other was about to take off, with no rerun to clear it.
+  commit-authors:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+      - run: node scripts/check-commit-authors.ts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          QUEUE_REF: ${{ github.event.merge_group.head_ref }}
+
   gate:
-    needs: [plan, docs, check, build, journeys]
+    needs: [plan, docs, check, build, journeys, commit-authors]
     if: always()
     name: ${{ needs.plan.outputs.quick == 'quick ' && 'quick ' || '' }}gate
     runs-on: ubuntu-latest
@@ -204,7 +233,7 @@ jobs:
             }
             process.exit(ok ? 0 : 1)
           APPLIES: >-
-            {"plan": true, "docs": ${{ needs.plan.outputs.docs == 'true' }}, "check": ${{ needs.plan.outputs.docs != 'true' }}, "build": ${{ needs.plan.outputs.docs != 'true' }}, "journeys": ${{ needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true' }}}
+            {"plan": true, "commit-authors": ${{ github.event_name != 'push' }}, "docs": ${{ needs.plan.outputs.docs == 'true' }}, "check": ${{ needs.plan.outputs.docs != 'true' }}, "build": ${{ needs.plan.outputs.docs != 'true' }}, "journeys": ${{ needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true' }}}
         run: |
           node --input-type=module -e "$GATE"
         shell: bash
