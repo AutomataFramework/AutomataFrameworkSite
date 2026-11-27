@@ -27,6 +27,20 @@ test('only the deploy job is given the Cloudflare token, and only on main', () =
   expect(deploy).toMatch(/concurrency:\n {6}group: deploy\n {6}cancel-in-progress: false/)
 })
 
+test("the waitlist's database, then its mailer, then the site, each step skipped until its files exist", () => {
+  const deploy = job(site, 'deploy')
+  const database = deploy.indexOf(
+    "if: hashFiles('migrations/*.sql') != ''\n        run: pnpm exec wrangler d1 migrations apply automata-waitlist --remote",
+  )
+  const mailer = deploy.indexOf(
+    "if: hashFiles('mailer/wrangler.toml') != ''\n        run: pnpm exec wrangler deploy -c mailer/wrangler.toml",
+  )
+  const pages = deploy.indexOf('run: pnpm exec wrangler pages deploy dist')
+  expect(database).toBeGreaterThan(0)
+  expect(mailer).toBeGreaterThan(database)
+  expect(pages).toBeGreaterThan(mailer)
+})
+
 test('the project it deploys to is the one in wrangler.toml', () => {
   const name = /^name = "([^"]+)"$/m.exec(
     readFileSync(new URL('../../wrangler.toml', import.meta.url), 'utf8'),
