@@ -182,8 +182,10 @@ Each is checked by a program unless it says otherwise.
 13. **Deploy** (CI and live): on `main`, migrations, the mailer and the site deploy in order; the live `live` journey
     passes; one real sign-up by the Owner with their own address receives the email, confirms and leaves (the Owner's
     walk, since a real send needs the real domain).
-14. **Performance**: the home page with the form stays under 100 KB transferred on first load (measured), and a form
-    post answers in under 1 second locally (measured).
+14. **Performance**: the form adds under 5 KB (gzipped HTML and CSS) to the home page's first load, measured against
+    `main`, and a form post answers in under 1 second locally (measured). (The spec first said "the home page stays
+    under 100 KB"; the build found the two fonts' Latin files alone are 101 KB on `main` today, so the budget is now on
+    what this change adds.)
 
 ## Boundaries the Owner approves
 

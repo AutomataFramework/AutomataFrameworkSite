@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#112F2C" />
+    <meta name="robots" content="noindex" />
+    <title>Join the list: Automata Framework</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="wrap">
+        <a class="wordmark" href="/" aria-label="Automata Framework, home">automata</a>
+      </div>
+    </header>
+    <main class="wrap">
+      <h1>One tap to join.</h1>
+      <p>Confirm it's you, and you're on the list.</p>
+      <form method="post" action="/api/waitlist/confirm">
+        <input type="hidden" name="t" value="" />
+        <button class="btn" type="submit">Yes, add me</button>
+      </form>
+    </main>
+  </body>
+</html>

@@ -7,11 +7,14 @@ const MIGRATIONS = new URL('../../migrations/', import.meta.url)
 
 export function sqliteDb(): Db & { sqlite: DatabaseSync } {
   const sqlite = new DatabaseSync(':memory:')
-  for (const file of readdirSync(MIGRATIONS).sort()) sqlite.exec(readFileSync(new URL(file, MIGRATIONS), 'utf8'))
+  for (const file of readdirSync(MIGRATIONS).sort())
+    sqlite.exec(readFileSync(new URL(file, MIGRATIONS), 'utf8'))
   const statement = (sql: string, values: Value[]): Statement => ({
     bind: (...next) => statement(sql, next),
     first: async <Row>() => (sqlite.prepare(sql).get(...(values as SQLInputValue[])) ?? null) as Row | null,
-    run: async () => ({ meta: { changes: Number(sqlite.prepare(sql).run(...(values as SQLInputValue[])).changes) } }),
+    run: async () => ({
+      meta: { changes: Number(sqlite.prepare(sql).run(...(values as SQLInputValue[])).changes) },
+    }),
   })
   return { sqlite, prepare: (sql) => statement(sql, []) }
 }

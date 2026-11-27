@@ -3,7 +3,7 @@
 import { expect, test } from '@playwright/test'
 
 const POLICY =
-  "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+  "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 
 test('every page is sent with its safety headers', async ({ request }) => {
   for (const address of ['/', '/no-such-page', '/licences.txt']) {

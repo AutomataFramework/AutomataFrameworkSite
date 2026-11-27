@@ -2,3 +2,14 @@
 name = "automataframework"
 pages_build_output_dir = "dist"
 compatibility_date = "2026-09-30"  # the newest date the installed workerd supports
+
+# The waitlist's sign-ups. The id is the Owner's database (spec 2026-11-27-waitlist-design.md, Owner step 3).
+[[d1_databases]]
+binding = "DB"
+database_name = "automata-waitlist"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+# The mailer Worker (mailer/), which sends the confirmation email.
+[[services]]
+binding = "MAILER"
+service = "automata-mailer"

@@ -11,8 +11,44 @@ export const CONFIRM_FOR = 48 * HOUR
 export const WAITING_FOR = 7 * 24 * HOUR
 /** At most one confirmation email per address in this time. */
 export const RESEND_AFTER = 10 * MINUTE
-/** At most this many confirmation emails a day across the site (UTC days). */
-export const DAILY_SENDS = 200
+/** The two limits on form posts per UTC day, whatever the address's state: per sender, and across the site. */
+export interface Limits {
+  senderPosts: number
+  dailyPosts: number
+}
+
+/** 96 a day keeps a 31-day month at 2,976 emails, inside the 3,000 the plan includes, so the list never costs extra. */
+export const LIMITS: Limits = { senderPosts: 3, dailyPosts: 96 }
+
+/** The limits, with any number the environment sets in place of the default (only the journeys' local server does). */
+export function limitsFrom(env: { WAITLIST_SENDER_POSTS?: string; WAITLIST_DAILY_POSTS?: string }): Limits {
+  const read = (raw: string | undefined, fallback: number): number => {
+    const value = Number(raw)
+    return raw !== undefined && Number.isInteger(value) && value > 0 ? value : fallback
+  }
+  return {
+    senderPosts: read(env.WAITLIST_SENDER_POSTS, LIMITS.senderPosts),
+    dailyPosts: read(env.WAITLIST_DAILY_POSTS, LIMITS.dailyPosts),
+  }
+}
+
+/**
+ * The part of an IP address that names one sender: an IPv4 address whole, or an IPv6 address's first 64 bits, since
+ * one home or phone is handed a whole /64.
+ */
+export function senderOf(ip: string): string {
+  if (!ip.includes(':')) return ip
+  const [head = '', tail = ''] = ip.toLowerCase().split('::')
+  const left = head === '' ? [] : head.split(':')
+  const right = tail === '' ? [] : tail.split(':')
+  const groups = ip.includes('::')
+    ? [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill('0'), ...right]
+    : left
+  return groups
+    .slice(0, 4)
+    .map((group) => (Number.parseInt(group, 16) || 0).toString(16))
+    .join(':')
+}
 
 /** The address as stored: trimmed and lower-cased, or null when it cannot be an address. */
 export function normaliseEmail(raw: string): string | null {
@@ -23,7 +59,10 @@ export function normaliseEmail(raw: string): string | null {
   const domain = match?.[2]
   if (domain === undefined) return null
   const labels = domain.split('.')
-  if (labels.length < 2 || labels.some((label) => !/^[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?$/u.test(label)))
+  if (
+    labels.length < 2 ||
+    labels.some((label) => !/^[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,61}[\p{L}\p{N}])?$/u.test(label))
+  )
     return null
   return email
 }

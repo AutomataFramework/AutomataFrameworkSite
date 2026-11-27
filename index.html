@@ -23,9 +23,47 @@
     <main class="wrap">
       <h1>Coming soon.</h1>
       <p>Automata Framework is a simple way to make games that play in a web browser. We are building it now.</p>
+
+      <section class="join" id="join" aria-labelledby="join-title">
+        <h2 id="join-title">Be first in line.</h2>
+        <p>Pick the editor you'd use first. We'll build that one sooner.</p>
+        <form method="post" action="/api/waitlist">
+          <label class="field" for="email">Your email</label>
+          <input id="email" name="email" type="email" autocomplete="email" inputmode="email" spellcheck="false"
+            required maxlength="254" />
+
+          <fieldset class="editors">
+            <legend>Which editor do you want first?</legend>
+            <label class="editor"><input type="radio" name="editor" value="screens" />
+              <span class="name">Screens</span><span class="line">Menus, buttons and words on screen</span></label>
+            <label class="editor"><input type="radio" name="editor" value="world" />
+              <span class="name">World</span><span class="line">Places and levels</span></label>
+            <label class="editor"><input type="radio" name="editor" value="characters" />
+              <span class="name">Characters</span><span class="line">Who's in it and how they move</span></label>
+            <label class="editor"><input type="radio" name="editor" value="feel" />
+              <span class="name">Feel</span><span class="line">How it plays in your hands</span></label>
+            <label class="editor"><input type="radio" name="editor" value="sound" />
+              <span class="name">Sound</span><span class="line">Music and sound effects</span></label>
+            <label class="editor"><input type="radio" name="editor" value="story" />
+              <span class="name">Story</span><span class="line">Words, choices and cutscenes</span></label>
+            <label class="editor"><input type="radio" name="editor" value="" />
+              <span class="name">Not sure yet</span><span class="line">Just tell me when it's ready</span></label>
+          </fieldset>
+
+          <!-- Out of sight, out of reach of the keyboard, screen readers and autofill: only a bot fills it. -->
+          <div class="trap" aria-hidden="true">
+            <label for="website">Leave this empty</label>
+            <input id="website" name="website" type="text" tabindex="-1" autocomplete="off" />
+          </div>
+
+          <button class="btn" type="submit">Add me to the list</button>
+          <p class="aside">One email to check it's you, then only news about Automata. Leave any time.
+            <a href="/privacy/">How we keep your email</a></p>
+        </form>
+      </section>
     </main>
     <footer>
-      <div class="wrap"><a href="/licences.txt">Font licences</a></div>
+      <div class="wrap"><a href="/privacy/">Privacy</a><a href="/licences.txt">Font licences</a></div>
     </footer>
   </body>
 </html>
