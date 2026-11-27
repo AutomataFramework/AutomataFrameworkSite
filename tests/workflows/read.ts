@@ -21,9 +21,6 @@ export function job(workflow: string, name: string): string {
   return next < 0 ? rest : rest.slice(0, next + 1)
 }
 
-/** A GitHub expression, written out here so the linter does not mistake it for a template string. */
-export const expr = (inside: string): string => `\${{ ${inside} }}`
-
 /** The id of every job in the workflow, in order. */
 export function jobIds(workflow: string): string[] {
   const jobs = workflow.slice(workflow.indexOf('\njobs:'))

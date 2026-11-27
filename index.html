@@ -5,162 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#112F2C" />
-    <title>Automata Framework: finish the game your agent started</title>
-    <meta name="description" content="Automata Framework is a toolkit for making 2D games that play in a web browser. It is still being built. Play the first game made with it." />
+    <title>Automata Framework: coming soon</title>
+    <meta name="description" content="Automata Framework is a simple way to make games that play in a web browser. It is coming soon." />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Automata Framework" />
-    <meta property="og:description" content="Automata Framework is a toolkit for making 2D games that play in a web browser. It is still being built. Play the first game made with it." />
+    <meta property="og:description" content="A simple way to make games that play in a web browser. Coming soon." />
     <meta property="og:url" content="https://automataframework.com/" />
-    <meta property="og:image" content="https://automataframework.com/share.png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Finish the game your agent started." />
-    <meta name="twitter:card" content="summary_large_image" />
-    <!-- The site token of Cloudflare Web Analytics for this site. It is public, and the counter loads only after a Yes. -->
-    <meta name="automata-counter-token" content="fda104fd676344cf87fa9e1225165470" />
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
     <header class="top">
-      <div class="wrap bar">
+      <div class="wrap">
         <a class="wordmark" href="/" aria-label="Automata Framework, home">automata</a>
-        <nav aria-label="Site">
-          <a href="#today">What works today</a>
-          <a href="https://github.com/mcthaydt/AutomataFramework"><i data-icon="github-logo"></i>GitHub</a>
-          <button type="button" class="btn main small" data-play hidden><i data-icon="play"></i>Play the game</button>
-        </nav>
       </div>
     </header>
-    <main>
-      <section class="hero">
-        <div class="wrap">
-          <a class="tag" href="#today"><b>Being built</b><span>See what works today</span><i data-icon="arrow-right"></i></a>
-          <h1>Finish the game your agent started.</h1>
-          <p class="lede">Your coding agent can make a playable demo in a weekend. Saves, menus, settings, touch controls and publishing are what take the weeks after that. Automata Framework is a toolkit that will have them built in.</p>
-          <div class="actions">
-            <button type="button" class="btn main" data-play hidden><i data-icon="play"></i>Play the first game</button>
-            <a class="btn second" data-address="files"><i data-icon="github-logo"></i>See how it is made</a>
-          </div>
-          <section class="ask" aria-labelledby="ask-title" data-ask hidden>
-            <h2 id="ask-title">May we count your visit?</h2>
-            <p>We only want to know how many people come. Cloudflare does the counting, with no cookies. Unless you press Yes, we count nothing.</p>
-            <div class="ask-answers">
-              <button type="button" class="btn second small" data-count="yes">Yes</button>
-              <button type="button" class="btn second small" data-count="no">No</button>
-            </div>
-          </section>
-          <section class="sheet" aria-label="The game">
-            <div class="sheet-head">
-              <b data-fact="name"></b>
-              <span class="quiet">A game made with Automata Framework</span>
-              <span class="how keys"><i data-icon="keyboard"></i>Arrow keys to move. Space to jump.</span>
-              <span class="how fingers"><i data-icon="hand-tap"></i>Use the buttons on the game.</span>
-              <button type="button" class="btn main small" data-play hidden><i data-icon="play"></i>Play it</button>
-              <p class="status" role="status" hidden>Loading the game…</p>
-            </div>
-            <noscript><p class="no-script">This game needs JavaScript. Turn it on in your browser's settings, then load this page again.</p></noscript>
-            <div id="game">
-              <img class="poster" src="/game.png" width="2560" height="1440" alt="" />
-            </div>
-            <dl class="title-block">
-              <div><dt>Game version</dt><dd><a data-address="version" data-fact="version"></a></dd></div>
-              <div><dt>Level</dt><dd data-fact="level-size"></dd></div>
-              <div><dt>Last check</dt><dd>Plays the same in <span data-fact="engines-list"></span></dd></div>
-            </dl>
-          </section>
-        </div>
-      </section>
-
-      <dl class="numbers wrap">
-        <div><dt data-fact="engines-count"></dt><dd><span data-fact="engines-list"></span> each replay the game to check it</dd></div>
-        <div><dt data-fact="steps"></dt><dd>of recorded play, replayed every time your AI helper changes the game</dd></div>
-        <div><dt data-fact="files-count"></dt><dd>hold all of the game's content</dd></div>
-        <div><dt data-fact="licence"></dt><dd>licensed and free to use</dd></div>
-      </dl>
-
-      <section class="part" id="files"><div class="wrap split">
-        <div class="text">
-          <p class="kicker">Built for agents</p>
-          <h2>That whole level is one small file.</h2>
-          <p class="sub">A game is small files with plain names. Your agent finds the right one, changes it, and the game changes.</p>
-          <ul class="points">
-            <li><i data-icon="check"></i><span><strong>You can read it.</strong> Each # is a wall and each dot is air.</span></li>
-            <li><i data-icon="check"></i><span><strong>Nothing is hidden.</strong> What is in the file is what the game plays.</span></li>
-          </ul>
-          <p class="more"><a data-address="files">See all of the game's files</a></p>
-        </div>
-        <div class="panel">
-          <p class="panel-head" data-fact="level-path"></p>
-          <div class="code" data-block="level-file" tabindex="0" role="region" aria-label="The level's file"></div>
-          <p class="panel-foot">Part of the file is shown here. <a data-address="level">Read the whole file</a></p>
-        </div>
-      </div></section>
-
-      <section class="part" id="world"><div class="wrap split flip">
-        <div class="text">
-          <p class="kicker">Levels</p>
-          <h2><span data-fact="levels-count"></span> on one map.</h2>
-          <p class="sub">Where each level sits on the map is one small file. Walk through a door into another level, or run across the edge where two levels touch.</p>
-          <ul class="points">
-            <li><i data-icon="users-three"></i><span><strong data-fact="players"></strong> can play.</span></li>
-            <li><i data-icon="door-open"></i><span data-fact="doors-line"></span></li>
-            <li><i data-icon="arrows-left-right"></i><span data-fact="joins-line"></span></li>
-          </ul>
-        </div>
-        <div class="panel">
-          <p class="panel-head" data-fact="world-path"></p>
-          <div class="map" data-block="world-map"></div>
-          <p class="panel-foot">Each box is a level. An arrow is a door. A bright bar is where two levels join.</p>
-        </div>
-      </div></section>
-
-      <section class="part" id="checks"><div class="wrap split">
-        <div class="text">
-          <p class="kicker">Checks</p>
-          <h2>Your agent can't quietly break your game.</h2>
-          <p class="sub"><span data-fact="plays-recorded"></span> Every time your AI helper changes the game, each recorded play is replayed in four places. If a change breaks something, it does not pass.</p>
-          <p class="more"><a data-address="checks">See the latest check</a></p>
-        </div>
-        <div class="panel">
-          <p class="panel-head"><span data-fact="replay-path"></span> · <span data-fact="steps"></span></p>
-          <table>
-            <thead><tr><th scope="col">Where it runs</th><th scope="col">How it ends</th></tr></thead>
-            <tbody data-block="engines"></tbody>
-          </table>
-          <p class="panel-foot">The ending when it was recorded: <span data-fact="replay-ending"></span></p>
-        </div>
-      </div></section>
-
-      <section class="part" id="today"><div class="wrap">
-        <p class="kicker">Where it stands</p>
-        <h2>What works today, and what is still being built.</h2>
-        <ul class="claims" data-block="claims"></ul>
-      </div></section>
-
-      <section class="closing"><div class="wrap">
-        <h2>Want to make your own game with it?</h2>
-        <p>Not yet. Follow the toolkit on GitHub and you will see the day it is ready.</p>
-        <a class="btn main" href="https://github.com/mcthaydt/AutomataFramework"><i data-icon="github-logo"></i>Follow on GitHub</a>
-      </div></section>
+    <main class="wrap">
+      <h1>Coming soon.</h1>
+      <p>Automata Framework is a simple way to make games that play in a web browser. We are building it now.</p>
     </main>
-
-    <footer><div class="wrap">
-      <div>
-        <a class="wordmark" href="/" aria-label="Automata Framework, home">automata</a>
-        <p>Automata Framework is free and MIT licensed.</p>
-      </div>
-      <nav aria-label="More">
-        <div><h3>Look inside</h3>
-          <a href="https://github.com/mcthaydt/AutomataFrameworkExamples">The game's files</a>
-          <a href="https://github.com/mcthaydt/AutomataFramework">The toolkit's files</a></div>
-        <div><h3>About</h3>
-          <a href="#today">What works today</a>
-          <a href="/licences.txt">Licences</a>
-          <button type="button" class="link" data-count-change hidden>Count my visits</button></div>
-      </nav>
-    </div></footer>
-    <script type="module" src="/src/index.ts"></script>
+    <footer>
+      <div class="wrap"><a href="/licences.txt">Font licences</a></div>
+    </footer>
   </body>
 </html>

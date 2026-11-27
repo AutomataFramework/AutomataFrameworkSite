@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 
-// Plan step 7 (`docs/superpowers/plans/2026-11-26-public-ci-speed.md`): GitHub's merge queue tests each pull request
+// GitHub's merge queue tests each pull request
 // merged with current `main`, and waits only on `gate`. So the workflow must run for the queue, run everything there,
 // and check the commits and words of the pull request inside `gate`. The workflow only runs on GitHub, so these checks
 // read its text and run `plan`'s own script.
@@ -49,7 +49,7 @@ test('a merge queue run tests everything, without reading a diff', () => {
       .split('\n')
       .map((pair) => pair.split('=')),
   )
-  expect(got).toMatchObject({ docs: 'false', full: 'true', journeys: 'true' })
+  expect(got).toMatchObject({ docs: 'false', full: 'true' })
 })
 
 test('commit-authors runs inside gate on every pull request and merge queue run, and may write only the pull request', () => {

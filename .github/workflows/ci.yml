@@ -1,11 +1,11 @@
-# `plan` says how much this run tests. `check` runs the static checks and the Node tests. `build` makes the site around a
-# stand-in game, and `journeys` drives it in real Chromium, WebKit and Firefox. Every action is pinned to a commit.
+# `plan` says how much this run tests. `check` runs the static checks and the Node tests. `build` makes the site, and
+# `journeys` drives it in real Chromium, WebKit and Firefox. `gate` is the one check that says all of it passed. Every
+# action is pinned to a commit.
 #
-# How much is tested (the Owner, 2026-11-15): while a pull request is a draft, a thread is still working on it, so the
-# Node tests run only where the change reaches, and the journeys play in Chromium only, only when the site's own files
-# or the journeys changed, and stop at their first failure. The whole
-# suite runs once the pull request is ready for review, on every push to main, and on a draft that carries the
-# `full-tests` label.
+# How much is tested (the Owner, 2026-11-15): the whole Node suite runs on every run, since it takes seconds. While a
+# pull request is a draft, the journeys play in Chromium only and stop at their first failure, and every check's name
+# starts with `quick `, which `main` never requires. The whole suite runs once the pull request is ready for review, on
+# every push to main, in the merge queue, and on a draft that carries the `full-tests` label.
 name: ci
 
 on:
@@ -14,8 +14,8 @@ on:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   push:
     branches: [main, 'merge-queue/**']
-  # GitHub's merge queue (plan step 7) tests each pull request merged with current `main` before it lands. It runs the
-  # whole suite: `plan` reads no diff for it, so everything is `true`.
+  # GitHub's merge queue tests each pull request merged with current `main` before it lands. It runs the whole suite:
+  # `plan` reads no diff for it, so everything is `true`.
   merge_group:
     types: [checks_requested]
 
@@ -29,18 +29,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # How much this run tests, from the event and the files the pull request changes. Everything but `docs` is `true`
-  # except on a draft without the `full-tests` label whose change leaves the build and the test setup alone:
-  #   full      false: the Node tests the change reaches (Vitest's `--changed`), the journeys in Chromium only, and
-  #             every run stops at its first failure
-  #   journeys  false when none of the files the site is made of, or its journeys, changed: the journeys are left out
-  #   only      true when only journeys changed, not the site: just those play (Playwright's `--only-changed`), since
-  #             a change to the site itself reaches every journey, which Playwright cannot trace through the built site
-  #   docs      true when only Markdown that people read changed: `docs` passes every check main requires,
-  #             under its own name, and every job that tests is left out
-  #   quick     `quick ` on a draft, `skipped ` on a docs-only run, and empty otherwise: the start of every
-  #             check's name, so a quick run never has the name of a check main requires, and only a full run (or
-  #             `docs`) can let a pull request merge
+  # How much this run tests, from the event and the files the pull request changes:
+  #   docs   true when only Markdown that people read changed: `docs` passes every check main requires under its own
+  #          name, and every job that tests is left out
+  #   full   false on a draft without the `full-tests` label: the journeys in Chromium only, stopping at the first failure
+  #   quick  `quick ` on a draft, `skipped ` on a docs-only run, and empty otherwise: the start of every check's name, so
+  #          only a full run (or `docs`) wears the names main requires
   plan:
     runs-on: ubuntu-latest
     permissions:
@@ -48,8 +42,6 @@ jobs:
       pull-requests: read
     outputs:
       full: ${{ steps.plan.outputs.full }}
-      journeys: ${{ steps.plan.outputs.journeys }}
-      only: ${{ steps.plan.outputs.only }}
       docs: ${{ steps.plan.outputs.docs }}
       quick: ${{ steps.plan.outputs.docs == 'true' && 'skipped ' || steps.plan.outputs.full != 'true' && 'quick ' || '' }}
     steps:
@@ -62,34 +54,23 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          full=true journeys=true only=false docs=false
+          full=true docs=false
+          # A diff GitHub cannot give (too large, or an error) runs everything, never less.
           if [ "$EVENT" = pull_request ] && [[ " $LABELS " != *" full-tests "* ]] &&
             changed="$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only)" && [ -n "$changed" ]; then
             printf 'This pull request changes:\n%s\n' "$changed"
-            # Only Markdown that people read (CLAUDE.md and the notes under docs/, never the README or a page a test
-            # reads): there is nothing to test, so `docs` passes every check main requires at once, draft or not.
-            others="$(grep -vE '^(CLAUDE\.md|docs/.+\.md)$' <<<"$changed" || true)"
-            if [ -z "$others" ]; then
+            # Only Markdown that people read (CLAUDE.md and the notes under docs/, never the README, which a test reads).
+            if ! grep -qvE '^(CLAUDE\.md|docs/.+\.md)$' <<<"$changed"; then
               docs=true
-            # A change to how things are installed, built, served or tested, or to the shared test files, reaches every
-            # test. `wrangler.toml` is how the journeys' server (`wrangler pages dev`) serves the site: a date it refuses
-            # broke every journey on a draft that played none (step 6 throwaway #123). `pnpm-workspace.yaml` says which
-            # packages may run their install scripts (workerd's and esbuild's), which the lockfile does not record.
-            elif [ "$DRAFT" = true ] && ! grep -qE '^(tests/fixtures/|package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|[^/]*\.config\.(ts|js)|tsconfig[^/]*\.json|wrangler\.toml|\.github/)' <<<"$changed"; then
+            elif [ "$DRAFT" = true ]; then
               full=false
-              grep -qE '^(src/|index\.html|404\.html|public/|scripts/|tests/journeys/)' <<<"$changed" || journeys=false
-              grep -qE '^(src/|index\.html|404\.html|public/|scripts/)' <<<"$changed" || only=true
             fi
           fi
-          # The `screenshots` label asks for the journeys, which take the pictures, on any draft.
-          if [[ " $LABELS " == *" screenshots "* ]]; then journeys=true; fi
-          echo "docs=$docs full=$full journeys=$journeys only=$only"
-          { echo "docs=$docs"; echo "full=$full"; echo "journeys=$journeys"; echo "only=$only"; } >> "$GITHUB_OUTPUT"
+          echo "docs=$docs full=$full"
+          { echo "docs=$docs"; echo "full=$full"; } >> "$GITHUB_OUTPUT"
 
   # A pull request that changes only Markdown that people read has nothing to test (the Owner, 2026-11-15). This job
-  # stands in for every check main requires, under its exact name, and passes at once. Every job that tests is left out
-  # and has `skipped ` at the start of its name, so a skipped job never wears a required name, and on any other run this
-  # job's own names start with `docs only `.
+  # stands in for every check main requires, under its exact name, and passes at once. On any other run it is left out.
   docs:
     needs: plan
     if: needs.plan.outputs.docs == 'true'
@@ -110,10 +91,6 @@ jobs:
     if: needs.plan.outputs.docs != 'true'
     name: ${{ needs.plan.outputs.quick }}check
     runs-on: ubuntu-latest
-    env:
-      # On a draft: every Node test, stopping at the first failure. The whole suite takes seconds, and picking tests by
-      # the change (`--changed` with `--passWithNoTests`) let a draft pass with no test run at all.
-      ONLY: ${{ needs.plan.outputs.full != 'true' && '--bail=1' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -125,21 +102,14 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm knip
-      - run: pnpm test:node $ONLY
+      - run: pnpm test:node
 
-  # The site as it would be served, with the stand-in game, for the journeys to drive.
+  # The site as it would be served, for the journeys to drive.
   build:
     needs: plan
     if: needs.plan.outputs.docs != 'true'
     name: ${{ needs.plan.outputs.quick }}build
     runs-on: ubuntu-latest
-    # Playwright's own image for the version the lockfile pins: the browsers and the system libraries they need are
-    # already in it, so nothing comes from the runner's package mirror, whose slow days left `install-deps` hanging
-    # until the job's timeout. Pinned by digest; moving Playwright in the lockfile moves this tag and digest with it.
-    # The runner's own user (1001), so the checkout, the caches and Firefox's home folder all belong to it.
-    container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
-      options: --user 1001
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -148,44 +118,55 @@ jobs:
           node-version: 24.21.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # `pnpm build` opens the built site in Chromium once, for the game's picture, the share picture and the icon.
-      # The image's browsers fit only the Playwright they came with: say so plainly if the lockfile moves without it.
-      - name: The image's Playwright is the lockfile's
-        run: test "$(pnpm exec playwright --version)" = "Version 1.63.0"
       - run: pnpm build
+        env:
+          SITE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: site
           path: dist
           if-no-files-found: error
 
-  # A called workflow gets no more than its caller grants: `actions: read` lets it download the site. Nothing may
-  # write; the pictures are kept as each run's artifacts (the Owner, 2026-11-15: no ci-screens branch here).
+  # The built site in real browsers, served by `wrangler pages dev` the way Cloudflare Pages serves it. Playwright's own
+  # image for the locked version, pinned by digest, holds the browsers and their system libraries, so nothing is
+  # installed from the runner's package mirror (the Owner, 2026-11-21). The runner's own user (1001) owns the checkout.
   journeys:
     needs: [plan, build]
+    if: needs.plan.outputs.docs != 'true'
     name: ${{ needs.plan.outputs.quick }}journeys
-    if: needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true'
-    permissions:
-      actions: read
-      contents: read
-    uses: ./.github/workflows/journeys.yml
-    with:
-      site-artifact: site
-      engines: ${{ needs.plan.outputs.full == 'true' && '["chromium", "webkit", "firefox"]' || '["chromium"]' }}
-      max-failures: ${{ needs.plan.outputs.full != 'true' && 1 || 0 }}
-      only-changed: ${{ needs.plan.outputs.only == 'true' }}
-      full: ${{ needs.plan.outputs.full == 'true' }}
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: --user 1001
+    env:
+      ENGINES: ${{ needs.plan.outputs.full == 'true' && '--project chromium --project webkit --project firefox' || '--project chromium --max-failures=1' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The image's browsers fit only the Playwright they came with: say so plainly if the lockfile moves without it.
+      - name: The image's Playwright is the lockfile's
+        run: test "$(pnpm exec playwright --version)" = "Version 1.63.0"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site
+          path: dist
+      - run: pnpm test:journeys $ENGINES
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: journeys-traces
+          path: test-results
+          if-no-files-found: ignore
 
-  # The one aggregate check main requires beside the names above. `plan` decides which checks apply to this run; this
-  # passes only when each of those ran and passed and every other was left out by `plan`, so a job skipped because
-  # something before it failed or was cancelled never counts as passed. A draft's is `quick gate`, which main never
-  # requires, so only a full run (or a docs-only one) can let a pull request merge. A new job is added to both lists.
   # The commits and the words of the pull request (`scripts/check-commit-authors.ts`), checked inside `gate` so that the
-  # merge queue, which waits only on `gate`, checks them too (plan step 7). A merge queue run has no pull request in its
-  # event, so the script takes the number from the queue's branch. A push to `main` has no pull request, so it is left
-  # out there. Its own workflow still runs when the title or description is edited. Like that workflow, this job may
-  # write the pull request, only to take off the footer the cloud tool appends: both run when a pull request opens, and
-  # a job that could only read would fail on a footer the other was about to take off, with no rerun to clear it.
+  # merge queue, which waits only on `gate`, checks them too. A merge queue run has no pull request in its event, so the
+  # script takes the number from the queue's branch. A push to `main` has no pull request, so it is left out there. It
+  # may write the pull request, only to take off the footer the cloud tool appends.
   commit-authors:
     if: github.event_name != 'push'
     runs-on: ubuntu-latest
@@ -205,6 +186,9 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           QUEUE_REF: ${{ github.event.merge_group.head_ref }}
 
+  # The one aggregate check main requires beside `check` and `build`. It passes only when every job that applies ran
+  # and passed and every other was left out by `plan`, so a job skipped because something before it failed never counts
+  # as passed. A draft's is `quick gate`, which main never requires. A new job is added to both lists.
   gate:
     needs: [plan, docs, check, build, journeys, commit-authors]
     if: always()
@@ -233,51 +217,7 @@ jobs:
             }
             process.exit(ok ? 0 : 1)
           APPLIES: >-
-            {"plan": true, "commit-authors": ${{ github.event_name != 'push' }}, "docs": ${{ needs.plan.outputs.docs == 'true' }}, "check": ${{ needs.plan.outputs.docs != 'true' }}, "build": ${{ needs.plan.outputs.docs != 'true' }}, "journeys": ${{ needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true' }}}
+            {"plan": true, "commit-authors": ${{ github.event_name != 'push' }}, "docs": ${{ needs.plan.outputs.docs == 'true' }}, "check": ${{ needs.plan.outputs.docs != 'true' }}, "build": ${{ needs.plan.outputs.docs != 'true' }}, "journeys": ${{ needs.plan.outputs.docs != 'true' }}}
         run: |
           node --input-type=module -e "$GATE"
         shell: bash
-      # Which engine failed, and in which piece: read from the result file each journeys piece leaves. Red when an engine
-      # failed or a piece left no line for an engine that applies.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: always() && needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true'
-        with:
-          sparse-checkout: scripts
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: always() && needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true'
-        with:
-          pattern: results-piece-*
-          merge-multiple: true
-          path: ${{ runner.temp }}/results
-      - name: Every engine passed in every journeys piece
-        if: always() && needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true'
-        run: node scripts/browser-pieces.ts "$RUNNER_TEMP/results"
-        env:
-          ENGINES: ${{ needs.plan.outputs.full == 'true' && '["chromium", "webkit", "firefox"]' || '["chromium"]' }}
-      # Every journey file the run listed (all of them on a full run, those changed on a draft that changed only
-      # journeys) played in exactly one piece for every engine, against each engine's own list. On a full run the times
-      # it took go up as `test-times`, for the next runs to fill their pieces from.
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: always() && needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true'
-        with:
-          pattern: times-piece-*
-          merge-multiple: true
-          path: ${{ runner.temp }}/times
-      - name: Every journey file played in exactly one piece
-        id: cover
-        if: always() && needs.plan.outputs.docs != 'true' && needs.plan.outputs.journeys == 'true'
-        run: node scripts/browser-fill.ts check "$RUNNER_TEMP/times"
-        env:
-          ENGINES: ${{ needs.plan.outputs.full == 'true' && '["chromium", "webkit", "firefox"]' || '["chromium"]' }}
-          FULL: ${{ needs.plan.outputs.full }}
-      - name: Record the times
-        if: always() && needs.plan.outputs.full == 'true' && steps.cover.outcome == 'success'
-        run: |
-          mkdir -p "$RUNNER_TEMP/test-times"
-          node scripts/browser-fill.ts record "$RUNNER_TEMP/times" "$RUNNER_TEMP/test-times/test-times.json"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always() && needs.plan.outputs.full == 'true' && steps.cover.outcome == 'success'
-        with:
-          name: test-times
-          path: ${{ runner.temp }}/test-times/test-times.json
-          if-no-files-found: error
