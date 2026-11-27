@@ -15,5 +15,5 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["tests", "scripts", "*.ts"]
+  "include": ["tests", "scripts", "src", "functions", "mailer", "*.ts"]
 }

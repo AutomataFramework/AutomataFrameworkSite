@@ -13,6 +13,13 @@ What is particular to this repo.
 - **For now it is one coming-soon page** (the Owner, 2026-11-27: "reset now"), plus a 404 page. The old demo-game site
   (its game frame, facts, claims, pictures and real-game build) was removed; git history has it. The site is updated at
   the end of each slice of the new framework.
+- **The waitlist** (spec `docs/superpowers/specs/2026-11-27-waitlist-design.md`): the home page's form posts to Pages
+  Functions (`functions/`, thin files over `src/waitlist/`), which keep sign-ups in the D1 database `automata-waitlist`
+  (`migrations/`) and send the confirmation email through the mailer Worker (`mailer/`, reached only by its service
+  binding; it also runs the daily clean-up). Cloudflare applies `_headers` only to static files, so every function
+  answer sets the same safety headers itself (`src/waitlist/headers.ts`, kept equal by a test). Nothing on the page
+  uses a script. The Owner counts sign-ups with
+  `pnpm dlx wrangler@4.140.0 d1 execute automata-waitlist --remote --command "SELECT editor, COUNT(*) FROM signups WHERE status = 'joined' GROUP BY editor"`.
 - **The site does not depend on the framework.** It imports nothing from it.
 - **Every claim on a page is true on `main` today.** A sentence that is true only on a branch, or only in one browser,
   is a defect.
@@ -23,7 +30,8 @@ What is particular to this repo.
 - **Dependencies the Owner approved for this repo** (2026-11-13): `wrangler` 4.140.0, `@playwright/test` 1.63.0,
   `@types/node` 24.19.1, and (2026-11-14, for the site's look) `@fontsource-variable/fraunces` 5.3.0 and
   `@fontsource-variable/onest` 5.3.1, all development-only. `knip.json` is told to ignore the two font packages,
-  because knip does not read CSS `@import`s.
+  because knip does not read CSS `@import`s, and `cloudflare`, the mailer's `cloudflare:workers` import, which the
+  Workers runtime provides.
 - **The site has its own palette and fonts** (the Owner picked them, 2026-11-14). Palette No. 325 from *A Dictionary of
   Color Combinations*: `ground` (Deep Slate Green), `words` (Naples Yellow) and `touch` (Yellow Ocher), and two shades
   mixed from them, `raised` (6% words in the ground) and `quiet` (70%). They are named only in `src/styles.css`. `touch`
@@ -59,11 +67,18 @@ The owner's own rules for this repo, beside the ones in CLAUDE.md (they are not 
 ```
 index.html, 404.html          the pages (Vite's entries)
 src/styles.css                the one stylesheet: the colours, the fonts, the layout
+privacy/, waitlist/*/          the privacy page and the waitlist's small pages (two are templates the functions fill)
+src/waitlist/                 the waitlist's logic: rules, tokens, the store, the email, headers, the site's handlers
+functions/                    Pages Functions: one thin file per address the waitlist answers
+mailer/                       the mailer Worker and its own wrangler.toml
+migrations/                   the D1 database's migrations
 public/                       files served as they are (`_headers`, the icon, `licences.txt`)
 scripts/check-commit-authors.ts   the commit and pull request words check `ci` and `commit-authors` run
 tests/journeys/               end-to-end journeys in real browsers, against the built site
 tests/workflows/              checks that read a workflow
 tests/scripts/, tests/docs/   checks of the script and of the README
 tests/fixtures/contrast.ts    the contrast ratio the journeys use
+tests/fixtures/sqlite-db.ts   a real SQLite database with the migrations, behind D1's calls, for the Node tests
+tests/waitlist/               the waitlist's Node tests
 docs/superpowers/             specs/, audits/, live/, progress.md and history.md
 ```

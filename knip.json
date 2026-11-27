@@ -1,7 +1,13 @@
 {
   "$schema": "https://unpkg.com/knip@6.39.0/schema.json",
   "ignoreExportsUsedInFile": true,
-  "entry": ["scripts/*.ts", "tests/**/*.test.ts", "tests/journeys/*.journey.ts"],
-  "project": ["scripts/**/*.ts", "tests/**/*.ts"],
-  "ignoreDependencies": ["@fontsource-variable/fraunces", "@fontsource-variable/onest"]
+  "entry": [
+    "scripts/*.ts",
+    "tests/**/*.test.ts",
+    "tests/journeys/*.journey.ts",
+    "functions/**/*.ts",
+    "mailer/src/index.ts"
+  ],
+  "project": ["scripts/**/*.ts", "tests/**/*.ts", "src/**/*.ts", "functions/**/*.ts", "mailer/src/**/*.ts"],
+  "ignoreDependencies": ["@fontsource-variable/fraunces", "@fontsource-variable/onest", "cloudflare"]
 }

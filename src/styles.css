@@ -47,7 +47,10 @@ a {
 }
 
 /* The ring is the words colour, with a gap, so it shows on the ground and beside a touch-coloured button alike. */
-a:focus-visible {
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+.editor:has(input:focus-visible) {
   outline: 3px solid var(--words);
   outline-offset: 3px;
 }
@@ -92,6 +95,8 @@ main p {
 
 .btn {
   display: inline-flex;
+  border: 0;
+  cursor: pointer;
   align-items: center;
   min-height: 52px;
   margin-top: 32px;
@@ -115,4 +120,150 @@ footer a {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
+}
+
+footer .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 24px;
+}
+
+h2 {
+  margin: 0;
+  font: 500 clamp(1.75rem, 4.5vw, 2.5rem) / 1.15 var(--title);
+  text-wrap: balance;
+}
+
+main .aside {
+  color: var(--quiet);
+  font-size: 16px;
+}
+
+/* The waitlist: one calm column, the choices as cards, one button. */
+.join {
+  max-width: 640px;
+  margin-top: 96px;
+  padding-top: 48px;
+  border-top: 1px solid var(--raised);
+}
+
+.join form {
+  display: grid;
+  gap: 12px;
+  margin-top: 40px;
+}
+
+.field,
+legend {
+  font-weight: 600;
+  font-size: 18px;
+}
+
+input[type="email"] {
+  width: 100%;
+  min-height: 56px;
+  padding: 0 16px;
+  border: 1px solid var(--quiet);
+  border-radius: 2px;
+  background: var(--ground);
+  color: var(--words);
+  font: 400 18px / 1 var(--label);
+}
+
+.editors {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 28px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+legend {
+  margin-bottom: 12px;
+  padding: 0;
+}
+
+.editor {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-height: 88px;
+  padding: 16px;
+  border: 1px solid var(--raised);
+  border-radius: 2px;
+  background: var(--raised);
+  cursor: pointer;
+}
+
+/* The round dot stays for screen readers and the keyboard; the card itself shows the pick. */
+.editor input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.editor:has(input:checked) {
+  border-color: var(--touch);
+  box-shadow: inset 0 0 0 1px var(--touch);
+}
+
+.editor .name {
+  font: 500 22px / 1.2 var(--title);
+}
+
+.editor:has(input:checked) .name {
+  color: var(--touch);
+}
+
+.editor .line {
+  color: var(--quiet);
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.join .btn {
+  justify-self: start;
+  min-height: 56px;
+  margin-top: 28px;
+  font-size: 18px;
+}
+
+.join .aside {
+  margin-top: 8px;
+}
+
+.trap {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* The privacy page: plain reading, a heading per question. */
+.prose h2 {
+  margin-top: 48px;
+  font-size: clamp(1.375rem, 3vw, 1.75rem);
+}
+
+.prose p,
+.prose ul {
+  max-width: 60ch;
+}
+
+.prose ul {
+  margin: 16px 0 0;
+  padding-left: 1.2em;
+  color: var(--quiet);
+  font-size: clamp(1.125rem, 2.5vw, 1.25rem);
+}
+
+.prose li + li {
+  margin-top: 8px;
+}
+
+.prose p {
+  margin-top: 12px;
 }
