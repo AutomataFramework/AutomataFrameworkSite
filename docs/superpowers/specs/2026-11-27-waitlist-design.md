@@ -67,9 +67,10 @@ One table, `signups`:
 
 The address is lower-cased on purpose: in practice no mail provider treats case as different, and it stops duplicates.
 No browser or tracking data is stored, and no IP address in readable form. Two more tables serve the limits:
-`sends(day, count)` counts confirmation emails per UTC day, and `senders(day, key, count)` counts them per sender per
-UTC day, where `key` is an HMAC of the sender's IP address under `WAITLIST_SECRET` and the day, so it cannot be turned
-back into an address and does not link one day to the next. The daily clean-up deletes `senders` and `sends` rows
+`sends(day, count)` counts well-formed form posts per UTC day, and `senders(day, key, count)` counts them per sender per
+UTC day, where `key` is an HMAC, under `WAITLIST_SECRET` and the day, of the sender's IPv4 address or of an IPv6
+address's first 64 bits (its /64, since one home or phone holds a whole /64), so it cannot be turned back into an
+address and does not link one day to the next. The daily clean-up deletes `senders` and `sends` rows
 older than today.
 
 ### Abuse and cost
@@ -78,13 +79,20 @@ older than today.
   from sight, screen readers and the keyboard alike (`aria-hidden="true"`, `tabindex="-1"`, `autocomplete="off"`), so
   no person or autofill fills it.
 - At most one confirmation email per address per 10 minutes.
-- At most 3 confirmation emails per sender (the `senders` key above) per UTC day, so one script cannot use up the day.
-- At most 200 confirmation emails per UTC day across the site. This keeps a flood from hurting the domain's sending
-  reputation and keeps sending inside the plan's included 3,000 a month.
+- The two limits below count every well-formed, non-hidden-field post, whatever state its address is in, so an
+  existing address uses up the limit exactly as a new one does and the counts leak nothing.
+- At most 3 posts per sender (the `senders` key above) per UTC day, so one script cannot use up the day. A class or
+  office behind one address meets "busy" after 3; the busy page says "or try from another network".
+- At most 96 posts per UTC day across the site: at most 2,976 emails in a 31-day month, inside the plan's included
+  3,000, so the list never costs extra. It also keeps a flood from hurting the domain's sending reputation. Raising
+  it is a one-line change, and a decision for the Owner.
+- The limits (per address, per sender, per site) are read from optional bindings with these numbers as defaults; only
+  the journeys' local server sets higher ones, so the journeys never meet them, and production sets none.
 - Past either of the last two, every well-formed post from that sender (or, for the site cap, everyone) gets
   `/waitlist/busy/`, which asks people to try tomorrow, whatever state the address is in.
 - A joined address is never changed by a new form post (nobody can change someone else's pick).
-- Rows still `waiting` 7 days after they were made are deleted by the mailer's daily Cron Trigger, whatever the
+- Rows still `waiting` 7 days after they were made are deleted by the mailer's daily Cron Trigger (00:05 UTC, so a
+  sender key lives one day, as the privacy page says), whatever the
   traffic (Pages Functions have no timer). The same tested clean-up function also runs on each form post.
 
 ### Headers
@@ -153,8 +161,9 @@ Each is checked by a program unless it says otherwise.
    and past them; a joined row's editor never changes from a form post.
 6. **Links** (unit): a confirm token works once, not after 48 hours, not for another address; tokens are 32 random
    bytes from `crypto.getRandomValues`; only their hashes are stored.
-7. **Limits** (unit, injected clock): one email per address per 10 minutes; past 3 a day from one sender, "busy" for
-   that sender only; past 200 a day, "busy" for all; the daily clean-up (the mailer's `scheduled` handler, tested
+7. **Limits** (unit, injected clock): one email per address per 10 minutes; past 3 posts a day from one sender,
+   "busy" for that sender only; past 96 a day, "busy" for all; posts for joined and waiting addresses count like new
+   ones; two IPv6 addresses in one /64 share a sender key, and two in different /64s do not; the daily clean-up (the mailer's `scheduled` handler, tested
    with the injected clock) removes `waiting` rows older than 7 days and `senders` and `sends` rows older than today,
    with no form post; the stored sender key is not the IP address and differs from one day to the next.
 8. **Keyboard and screen readers** (journey): every control has a label, the choices are one radio group with a
@@ -208,10 +217,10 @@ Cloudflare has no CLI or API for some of these; where it has one, it is given.
    `pnpm dlx wrangler@4.140.0 login && pnpm dlx wrangler@4.140.0 d1 create automata-waitlist`
 4. Give the CI token (`CLOUDFLARE_API_TOKEN`) "D1: Edit" and "Workers Scripts: Edit" on the account, besides
    "Cloudflare Pages: Edit" (dashboard: My Profile, API Tokens, edit). No CLI exists.
-5. Set the secret for the leave links and the sender key, on the site and on the mailer (the same random value):
-   `openssl rand -base64 32 | tee /dev/stderr | pnpm dlx wrangler@4.140.0 pages secret put WAITLIST_SECRET --project-name automataframework`
-   then paste the same value into `pnpm dlx wrangler@4.140.0 secret put WAITLIST_SECRET --name automata-mailer`
-   (after the mailer's first deploy).
+5. Set the secret for the leave links and the sender key, on the site only (the mailer holds no secret: the functions
+   build the tokens and the email, and the mailer only sends it and runs the clean-up):
+   `openssl rand -base64 32 | pnpm dlx wrangler@4.140.0 pages secret put WAITLIST_SECRET --project-name automataframework`.
+   It is never rotated: a new value breaks every leave link ever sent, unless a migration rewrites `leave_hash`.
 6. For replies (decision 2): turn on Email Routing for `automataframework.com` and forward `hello@` to the inbox the
    Owner picks (dashboard: Email, Email Routing; it adds its own DNS records).
 
@@ -232,6 +241,28 @@ One session does units 3 to 7 in turn, on one branch and one implementation pull
 only after Owner steps 2 to 6 are done, since its merge turns on the deploy
 steps; until then it waits as a draft, and `wrangler.toml` holds the real database id only once step 3 gives it. The existing tests that
 change (`home.journey.ts`, `site.test.ts`) are named in their pull requests.
+
+## Plan audit cycle 2: what changed
+
+The second and last plan round (`docs/superpowers/audits/2026-11-27-waitlist-2-plan-audit.md`, FAIL: 5 red). Its reds
+are folded in here and the implementation audit checks each.
+
+| Finding | Answer |
+|---|---|
+| R8 counters count sends | The limits count well-formed posts, whatever the address's state; Abuse and cost; criteria 5 and 7 |
+| R9 IPv6 dodges the limit | The key is of the IPv4 address or the IPv6 /64; Data; criterion 7 |
+| R10 journeys trip the limit | Limits from optional bindings, set higher only by the journeys' local server |
+| R11 mailer secret after deploy | The mailer holds no secret; Owner step 5 |
+| R12 200 a day is over 3,000 a month | 96 a day |
+| N12 | The Node test compares every header but `Referrer-Policy`, which the function set replaces with `no-referrer`; the static waitlist pages drop the `/*` value (`! Referrer-Policy`) before setting `no-referrer`, and the headers journey reads it |
+| N13 | The Cron Trigger runs at 00:05 UTC |
+| N14 | The secret is never rotated; `List-Unsubscribe` carries `/api/waitlist/leave?t=…`, where a `POST` with `List-Unsubscribe=One-Click` deletes the row with no page |
+| N15 | The mailer keeps its local state in the journeys' own `--persist-to` folder, and its emails under `mailer/.wrangler/tmp/email/`; no `wrangler types` output: the few runtime types are written by hand in `src/waitlist/env.ts` and `mailer/src/workers.d.ts` |
+| N16 | The Owner's approval of the implementation pull request covers, by name, the first `--remote` migration (a production database) and the first mailer deploy (real sends) |
+| N17 | If the Owner's steps take longer than 2 days, the implementation branch stays open as a draft, with the reason in `progress.md`; the steps are sent to the Owner as soon as the build passes locally |
+| N18 | The journeys are written first, as the check |
+| N19 | The busy page says "or try from another network" |
+| N20 | Checked at the mailer's first deploy; if it needs more, Owner step 4 gains it |
 
 ## Plan audit cycle 1: what changed
 
