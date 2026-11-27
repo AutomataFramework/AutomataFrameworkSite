@@ -13,7 +13,7 @@ allowed_sender_addresses = ["hello@automataframework.com"]
 [[d1_databases]]
 binding = "DB"
 database_name = "automata-waitlist"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "17412598-fb58-4663-aa58-39144adf1f3f"
 migrations_dir = "../migrations"
 
 # Just after each UTC midnight, so a sender key lives one day.
