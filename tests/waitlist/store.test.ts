@@ -231,3 +231,9 @@ test('posts that arrive together from many senders cannot pass the daily limit',
   )
   expect(results.filter((result) => result.kind === 'send')).toHaveLength(5)
 })
+
+test('one sender who keeps posting cannot use up the day for everyone else', async () => {
+  const db = sqliteDb()
+  for (let i = 0; i < LIMITS.dailyPosts + 4; i++) await join(db, T0, form(`again${i}@example.com`), '6.6.6.6')
+  expect((await join(db, T0, form('someone.else@example.com'), '7.7.7.7')).kind).toBe('send')
+})

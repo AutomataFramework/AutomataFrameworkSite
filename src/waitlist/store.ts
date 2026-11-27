@@ -68,14 +68,7 @@ export async function join(
   const key = await hmac(sender.secret, `sender\n${day}\n${senderOf(sender.ip)}`)
   // Each counter is checked and raised in one statement, so posts that arrive together cannot all slip under a limit.
   // No row back means the counter was already at its limit.
-  const site = await db
-    .prepare(
-      `INSERT INTO sends (day, count) VALUES (?1, 1)
-       ON CONFLICT (day) DO UPDATE SET count = count + 1 WHERE count < ?2 RETURNING count`,
-    )
-    .bind(day, limits.dailyPosts)
-    .first()
-  if (site === null) return { kind: 'busy' }
+  // The sender comes first, so posts past their own limit never count against the day's for everyone else.
   const mine = await db
     .prepare(
       `INSERT INTO senders (day, key, count) VALUES (?1, ?2, 1)
@@ -84,6 +77,14 @@ export async function join(
     .bind(day, key, limits.senderPosts)
     .first()
   if (mine === null) return { kind: 'busy' }
+  const site = await db
+    .prepare(
+      `INSERT INTO sends (day, count) VALUES (?1, 1)
+       ON CONFLICT (day) DO UPDATE SET count = count + 1 WHERE count < ?2 RETURNING count`,
+    )
+    .bind(day, limits.dailyPosts)
+    .first()
+  if (site === null) return { kind: 'busy' }
 
   const row = await db
     .prepare('SELECT status, last_sent_at FROM signups WHERE email = ?')
