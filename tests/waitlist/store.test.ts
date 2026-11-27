@@ -209,3 +209,25 @@ test('a custom daily limit is kept', async () => {
     kind: 'busy',
   })
 })
+
+// The fake runs each statement at once, so these hold the limits under Promise.all; the race itself showed only on a
+// real local server (20 posts at once: the old code sent 12, this code sends 3).
+test('posts that arrive together from one sender cannot all slip under the limit', async () => {
+  const db = sqliteDb()
+  const results = await Promise.all(
+    Array.from({ length: 20 }, (_, i) => join(db, T0, form(`rush${i}@example.com`), '4.4.4.4')),
+  )
+  expect(results.filter((result) => result.kind === 'send')).toHaveLength(LIMITS.senderPosts)
+  expect(results.filter((result) => result.kind === 'busy')).toHaveLength(20 - LIMITS.senderPosts)
+})
+
+test('posts that arrive together from many senders cannot pass the daily limit', async () => {
+  const db = sqliteDb()
+  const limits = { senderPosts: 100, dailyPosts: 5 }
+  const results = await Promise.all(
+    Array.from({ length: 20 }, (_, i) =>
+      joinAs(db, T0, form(`crowd${i}@example.com`), { secret: SECRET, ip: `5.5.5.${i}` }, limits),
+    ),
+  )
+  expect(results.filter((result) => result.kind === 'send')).toHaveLength(5)
+})

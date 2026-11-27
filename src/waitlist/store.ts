@@ -66,23 +66,24 @@ export async function join(
   // answer nor the counts can tell a new address from one already on the list.
   const day = dayOf(now)
   const key = await hmac(sender.secret, `sender\n${day}\n${senderOf(sender.ip)}`)
-  const site = await db.prepare('SELECT count FROM sends WHERE day = ?').bind(day).first<{ count: number }>()
-  const mine = await db
-    .prepare('SELECT count FROM senders WHERE day = ? AND key = ?')
-    .bind(day, key)
-    .first<{ count: number }>()
-  if ((site?.count ?? 0) >= limits.dailyPosts || (mine?.count ?? 0) >= limits.senderPosts)
-    return { kind: 'busy' }
-  await db
-    .prepare('INSERT INTO sends (day, count) VALUES (?, 1) ON CONFLICT (day) DO UPDATE SET count = count + 1')
-    .bind(day)
-    .run()
-  await db
+  // Each counter is checked and raised in one statement, so posts that arrive together cannot all slip under a limit.
+  // No row back means the counter was already at its limit.
+  const site = await db
     .prepare(
-      'INSERT INTO senders (day, key, count) VALUES (?, ?, 1) ON CONFLICT (day, key) DO UPDATE SET count = count + 1',
+      `INSERT INTO sends (day, count) VALUES (?1, 1)
+       ON CONFLICT (day) DO UPDATE SET count = count + 1 WHERE count < ?2 RETURNING count`,
     )
-    .bind(day, key)
-    .run()
+    .bind(day, limits.dailyPosts)
+    .first()
+  if (site === null) return { kind: 'busy' }
+  const mine = await db
+    .prepare(
+      `INSERT INTO senders (day, key, count) VALUES (?1, ?2, 1)
+       ON CONFLICT (day, key) DO UPDATE SET count = count + 1 WHERE count < ?3 RETURNING count`,
+    )
+    .bind(day, key, limits.senderPosts)
+    .first()
+  if (mine === null) return { kind: 'busy' }
 
   const row = await db
     .prepare('SELECT status, last_sent_at FROM signups WHERE email = ?')

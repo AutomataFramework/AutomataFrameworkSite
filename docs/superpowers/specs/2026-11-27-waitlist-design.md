@@ -203,7 +203,7 @@ Each is checked by a program unless it says otherwise.
 ## Owner decisions
 
 1. Workers Paid: "It's already on" (decision card, 2026-11-27 02:27 UTC). No new cost; sends past the included 3,000
-   a month are $0.35 per 1,000, and the 200-a-day cap keeps them inside it.
+   a month are $0.35 per 1,000, and the 96-a-day cap keeps them inside it.
 2. The privacy page names "Team Automata", with hello@automataframework.com as the contact, forwarded to the Owner's
    inbox by Email Routing (decision card, 2026-11-27 02:27 UTC, for the address; the Owner's message at 02:28 UTC,
    "use Team Automata", for the name). The email's sender name is "Team Automata" too.
