@@ -1,24 +1,118 @@
-/* The site's own look: palette No. 325 from A Dictionary of Color Combinations, in three fonts. Four colours come from
-   the book: the ground (Deep Slate Green), the words (Naples Yellow), touch (Yellow Ocher) and mark (Eugenia Red). Two
-   more are the words colour let into the ground (6% for raised panels and every line that only divides, 70% for quieter
-   words). These six are the only colours named anywhere on the site, and dark is the only theme for now. Touch means
-   "you can touch this" and nothing else. Mark is an edge or an icon and never carries words, because it is only 3.64 to
-   1 on the ground. The game in the frame is never restyled: nothing here reaches inside it, and nothing is drawn over
-   it. Words are at least 18 px (labels 13 px), touch targets at least 44 px.
+/* The site's look: palette No. 325 from A Dictionary of Color Combinations, the colours the Owner picked. The ground
+   (Deep Slate Green), the words (Naples Yellow) and touch (Yellow Ocher) come from the book; quiet is the words colour
+   let 70% into the ground, and raised 6%, for a line that only divides. These are the only colours on the site, dark is
+   the only theme, and touch means "you can touch this" and nothing else.
 
-   The three fonts are the site's own files, from packages (the safety header allows fonts from nowhere else), and only
-   their Latin files, because every word on the site is English: the day the site has another language, that
-   language's files are added here. Fraunces is for the claim, titles and the wordmark, Onest for words and labels,
-   JetBrains Mono for numbers and file names.
-
-   The sheet is split by page part into src/styles/, imported below in the order the rules must win (a file may be at most
-   600 lines, like every other). The six colours are named in base.css and nowhere else. */
+   The two fonts are the site's own files, from packages, because the safety header allows fonts from nowhere else:
+   Fraunces for the wordmark and titles, Onest for the words. Each list ends in the device's own fonts, which show while
+   the files arrive. */
 @import "@fontsource-variable/fraunces/opsz.css";
 @import "@fontsource-variable/onest/wght.css";
-@import "@fontsource/jetbrains-mono/latin-400.css";
-@import "./styles/base.css";
-@import "./styles/bar.css";
-@import "./styles/hero.css";
-@import "./styles/parts.css";
-@import "./styles/sizes.css";
-@import "./styles/motion.css";
+
+:root {
+  color-scheme: dark;
+  --ground: #112f2c;
+  --raised: #1f3a33;
+  --words: #fbe6a0;
+  --quiet: #b5af7d;
+  --touch: #e2b540;
+  --title: "Fraunces Variable", Georgia, "Times New Roman", serif;
+  --label: "Onest Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --gutter: max(24px, env(safe-area-inset-left), env(safe-area-inset-right));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  margin: 0;
+  background-color: var(--ground);
+  color: var(--words);
+  font: 400 18px / 1.5 var(--label);
+}
+
+a {
+  color: var(--touch);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+/* The ring is the words colour, with a gap, so it shows on the ground and beside a touch-coloured button alike. */
+a:focus-visible {
+  outline: 3px solid var(--words);
+  outline-offset: 3px;
+}
+
+.wrap {
+  width: 100%;
+  max-width: 960px;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.top {
+  border-bottom: 1px solid var(--raised);
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  min-height: 64px;
+  color: var(--words);
+  font: 600 24px / 1 var(--title);
+  text-decoration: none;
+}
+
+main {
+  flex: 1;
+  padding-block: 96px 128px;
+}
+
+h1 {
+  margin: 0;
+  font: 500 clamp(2.4rem, 7vw, 4.5rem) / 1.1 var(--title);
+  text-wrap: balance;
+}
+
+main p {
+  max-width: 34ch;
+  margin: 24px 0 0;
+  color: var(--quiet);
+  font-size: clamp(1.125rem, 2.5vw, 1.375rem);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 52px;
+  margin-top: 32px;
+  padding: 0 24px;
+  border-radius: 2px;
+  background: var(--touch);
+  color: var(--ground);
+  font: 600 16px / 1 var(--label);
+  text-decoration: none;
+}
+
+footer {
+  padding-block: 24px;
+  border-top: 1px solid var(--raised);
+  color: var(--quiet);
+  font-size: 16px;
+}
+
+/* A link in a line of words is still big enough for a thumb. */
+footer a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}

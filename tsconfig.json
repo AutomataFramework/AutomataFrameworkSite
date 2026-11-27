@@ -15,6 +15,5 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["src", "tests", "scripts", "*.ts"],
-  "exclude": ["tests/fixtures"]
+  "include": ["tests", "scripts", "*.ts"]
 }
