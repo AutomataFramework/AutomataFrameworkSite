@@ -7,7 +7,7 @@ compatibility_date = "2026-09-30"  # the newest date the installed workerd suppo
 [[d1_databases]]
 binding = "DB"
 database_name = "automata-waitlist"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "17412598-fb58-4663-aa58-39144adf1f3f"
 
 # The mailer Worker (mailer/), which sends the confirmation email.
 [[services]]
