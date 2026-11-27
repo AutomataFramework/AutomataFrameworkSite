@@ -66,6 +66,23 @@ jobs:
         with:
           name: site
           path: dist
+      # The waitlist (spec 2026-11-27-waitlist-design.md): its database first, then its mailer, then the site whose
+      # functions use both. Each step is skipped until the files it deploys exist. Only these three wrangler steps get the
+      # token, so the install's build scripts and the actions above never see it.
+      - name: Bring the waitlist database up to date
+        if: hashFiles('migrations/*.sql') != ''
+        run: pnpm exec wrangler d1 migrations apply automata-waitlist --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
+      - name: Deploy the waitlist mailer
+        if: hashFiles('mailer/wrangler.toml') != ''
+        run: pnpm exec wrangler deploy -c mailer/wrangler.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
       - name: Upload it to Cloudflare Pages
         run: pnpm exec wrangler pages deploy dist --project-name automataframework --branch main
         env:
