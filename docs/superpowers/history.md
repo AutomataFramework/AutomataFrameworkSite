@@ -62,6 +62,11 @@ Finished milestones and their decision records, setup, rule changes, standing pe
   Later rule changes are lane 3 as usual.
 - 2026-11-18, the Owner: the shared Verification text says the full suite runs in CI where `release` sets the gate, so a games kit gate that runs the smoke set is a stated case. Chosen on a decision card ("Merge now, reword later").
 - 2026-11-18, the Owner: a plan's order is a claim that one unit waits on another, not a queue; independent units run side by side up to the writer limit (`staged-path`). Asked for in the coordinator thread.
+- 2026-11-27, the Owner: Superpowers' `test-driven-development` and `verification-before-completion` are dropped.
+  Chosen on a decision card ("Drop them, keep our own rules"). The "Superpowers' testing skills" paragraph leaves
+  `build` and its sentence leaves `staged-path`, so Verification in `build` stands alone. `staged-path` now says the
+  testing skills executing-plans marks as required are not loaded and Verification in `build` replaces them. The same change is made in the
+  kit pages (mcthaydt.com). This replaces the 2026-11-18 Setup note that listed the differences in `build`.
 
 ## Standing permissions
 
