@@ -19,12 +19,33 @@ test('every action is pinned to a commit', () => {
     expect(line, line).toMatch(/uses: \S+@[0-9a-f]{40}(\s|$)/)
 })
 
-test('only the deploy job is given the Cloudflare token, and only on main', () => {
-  expect(site.match(/secrets\.CLOUDFLARE_API_TOKEN/g)).toHaveLength(1)
+test('only the three wrangler steps of the deploy job are given the Cloudflare token, and only on main', () => {
   const deploy = job(site, 'deploy')
-  expect(deploy).toContain('secrets.CLOUDFLARE_API_TOKEN')
+  expect(site.match(/secrets\.CLOUDFLARE_API_TOKEN/g)).toHaveLength(3)
+  const steps = deploy
+    .slice(deploy.indexOf('\n    steps:\n'))
+    .split(/\n(?= {6}- )/)
+    .slice(1)
+  const withToken = steps.filter((step) => step.includes('secrets.CLOUDFLARE_API_TOKEN'))
+  expect(withToken).toHaveLength(3)
+  for (const step of withToken) expect(step, step).toMatch(/\n {8}run: pnpm exec wrangler [^\n]+\n {8}env:\n/)
+  expect(deploy.slice(0, deploy.indexOf('\n    steps:\n'))).not.toContain('env:')
   expect(deploy).toContain("if: github.ref == 'refs/heads/main'")
   expect(deploy).toMatch(/concurrency:\n {6}group: deploy\n {6}cancel-in-progress: false/)
+})
+
+test("the waitlist's database, then its mailer, then the site, each step skipped until its files exist", () => {
+  const deploy = job(site, 'deploy')
+  const database = deploy.indexOf(
+    "if: hashFiles('migrations/*.sql') != ''\n        run: pnpm exec wrangler d1 migrations apply automata-waitlist --remote",
+  )
+  const mailer = deploy.indexOf(
+    "if: hashFiles('mailer/wrangler.toml') != ''\n        run: pnpm exec wrangler deploy -c mailer/wrangler.toml",
+  )
+  const pages = deploy.indexOf('run: pnpm exec wrangler pages deploy dist')
+  expect(database).toBeGreaterThan(0)
+  expect(mailer).toBeGreaterThan(database)
+  expect(pages).toBeGreaterThan(mailer)
 })
 
 test('the project it deploys to is the one in wrangler.toml', () => {
